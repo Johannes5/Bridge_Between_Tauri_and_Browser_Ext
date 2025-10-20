@@ -135,6 +135,53 @@ async fn bridge_to_app(
                                 Some(Ok(Message::Binary(bin))) => {
                                     hub.broadcast(&format!(r#"{{"v":1,"type":"error.binary","payload":{{"bytes":{}}}}}"#, bin.len()));
                                 }
+                                Some(Ok(Message::Ping(payload))) => {
+                                    hub.broadcast(
+                                        &json!({
+                                            "v": 1,
+                                            "type": "debug.ping",
+                                            "payload": { "bytes": payload.len() }
+                                        })
+                                        .to_string(),
+                                    );
+                                    if write.send(Message::Pong(payload)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Some(Ok(Message::Pong(payload))) => {
+                                    hub.broadcast(
+                                        &json!({
+                                            "v": 1,
+                                            "type": "debug.pong",
+                                            "payload": { "bytes": payload.len() }
+                                        })
+                                        .to_string(),
+                                    );
+                                }
+                                Some(Ok(Message::Close(frame))) => {
+                                    let code = frame.as_ref().map(|f| u16::from(f.code));
+                                    let reason = frame.as_ref().and_then(|f| {
+                                        let text = f.reason.to_string();
+                                        if text.is_empty() {
+                                            None
+                                        } else {
+                                            Some(text)
+                                        }
+                                    });
+
+                                    hub.broadcast(
+                                        &json!({
+                                            "v": 1,
+                                            "type": "debug.close",
+                                            "payload": { "code": code, "reason": reason }
+                                        })
+                                        .to_string(),
+                                    );
+                                    break;
+                                }
+                                Some(Ok(Message::Frame(_))) => {
+                                    // tungstenite internal frame; ignore
+                                }
                                 Some(Err(err)) => {
                                     eprintln!("[sidecar] app ws error: {err:#}");
                                     break;
@@ -166,37 +213,77 @@ async fn spawn_debug_ws(port: u16, hub: DebugHub, to_app_tx: mpsc::Sender<String
         tokio::spawn(async move {
             let (mut write, mut read) = ws.split();
             let mut rx = hub_for_client.register();
-            let forward = tokio::spawn(async move {
-                while let Some(message) = rx.recv().await {
-                    if write.send(Message::Text(message)).await.is_err() {
-                        break;
-                    }
-                }
-            });
 
-            while let Some(incoming) = read.next().await {
-                match incoming {
-                    Ok(Message::Text(txt)) => {
-                        hub_for_client.broadcast(&txt);
-                        if to_app_tx_for_client.send(txt).await.is_err() {
+            loop {
+                tokio::select! {
+                    Some(outbound) = rx.recv() => {
+                        if write.send(Message::Text(outbound)).await.is_err() {
                             break;
                         }
                     }
-                    Ok(Message::Binary(bin)) => {
-                        let txt = format!(
-                            r#"{{"v":1,"type":"debug.binary","payload":{{"bytes":{}}}}}"#,
-                            bin.len()
-                        );
-                        hub_for_client.broadcast(&txt);
-                    }
-                    Err(err) => {
-                        eprintln!("[sidecar] debug ws client error: {err:#}");
-                        break;
+                    incoming = read.next() => {
+                        match incoming {
+                            Some(Ok(Message::Text(txt))) => {
+                                hub_for_client.broadcast(&txt);
+                                if to_app_tx_for_client.send(txt).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(Ok(Message::Binary(bin))) => {
+                                let txt = json!({
+                                    "v": 1,
+                                    "type": "debug.binary",
+                                    "payload": { "bytes": bin.len() }
+                                })
+                                .to_string();
+                                hub_for_client.broadcast(&txt);
+                            }
+                            Some(Ok(Message::Ping(payload))) => {
+                                let info = json!({
+                                    "v": 1,
+                                    "type": "debug.ping",
+                                    "payload": { "bytes": payload.len() }
+                                })
+                                .to_string();
+                                hub_for_client.broadcast(&info);
+                                if write.send(Message::Pong(payload)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(Ok(Message::Pong(payload))) => {
+                                let info = json!({
+                                    "v": 1,
+                                    "type": "debug.pong",
+                                    "payload": { "bytes": payload.len() }
+                                })
+                                .to_string();
+                                hub_for_client.broadcast(&info);
+                            }
+                            Some(Ok(Message::Close(frame))) => {
+                                let code = frame.as_ref().map(|f| u16::from(f.code));
+                                let reason = frame.as_ref().and_then(|f| {
+                                    let text = f.reason.to_string();
+                                    if text.is_empty() { None } else { Some(text) }
+                                });
+                                let info = json!({
+                                    "v": 1,
+                                    "type": "debug.close",
+                                    "payload": { "code": code, "reason": reason }
+                                })
+                                .to_string();
+                                hub_for_client.broadcast(&info);
+                                break;
+                            }
+                            Some(Ok(Message::Frame(_))) => { /* ignore */ }
+                            Some(Err(err)) => {
+                                eprintln!("[sidecar] debug ws client error: {err:#}");
+                                break;
+                            }
+                            None => break,
+                        }
                     }
                 }
             }
-
-            forward.abort();
         });
     }
 }
