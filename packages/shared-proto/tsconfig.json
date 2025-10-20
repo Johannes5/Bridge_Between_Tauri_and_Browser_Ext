@@ -8,7 +8,9 @@
     "sourceMap": true,
     "composite": true,
     "skipLibCheck": true,
-    "module": "NodeNext"
+    "module": "CommonJS",
+    "moduleResolution": "Node"
   },
   "include": ["src"]
 }
+

@@ -3,6 +3,19 @@
   "displayName": "ShortStop",
   "version": "0.0.1",
   "description": "The anti doom-scrolling extension",
+  "manifest": {
+    "name": "Bridge Dev Extension",
+    "description": "Companion extension for the MapMap bridge workspace.",
+    "permissions": ["tabs", "sessions", "nativeMessaging", "windows"],
+    "host_permissions": ["http://*/*", "https://*/*"],
+    "background": {
+      "service_worker": "background.ts"
+    },
+    "options_ui": {
+      "page": "options.html",
+      "open_in_tab": true
+    }
+  },
   "author": "Plasmo Corp. <foss@plasmo.com>",
   "scripts": {
     "dev": "plasmo dev",

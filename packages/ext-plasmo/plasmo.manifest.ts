@@ -1,6 +1,4 @@
-import type { PlasmoManifest } from "plasmo";
-
-const manifest: PlasmoManifest = {
+const manifest = {
   manifest_version: 3,
   name: "Bridge Dev Extension",
   version: "0.1.0",
@@ -14,7 +12,6 @@ const manifest: PlasmoManifest = {
   },
   permissions: ["tabs", "sessions", "nativeMessaging", "windows"],
   host_permissions: ["http://*/*", "https://*/*"]
-};
+} satisfies chrome.runtime.ManifestV3;
 
 export default manifest;
-

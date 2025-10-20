@@ -114,9 +114,9 @@ const sendCurrentWindowTabs = async (reason: string) => {
         url: tab.url ?? undefined,
         title: tab.title ?? undefined,
         favIconUrl: tab.favIconUrl ?? undefined,
-        lastAccessed: (tab as chrome.sessions.Session & { lastAccessed?: number }).lastAccessed ?? Date.now(),
+        lastAccessed: coerceLastAccessed(tab),
         windowId: tab.windowId ?? undefined,
-        groupId: (tab as any).groupId ?? undefined,
+        groupId: (tab as chrome.tabs.Tab & { groupId?: number }).groupId ?? undefined,
         pinned: tab.pinned ?? false
       }))
     });
@@ -169,6 +169,13 @@ const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
     createProps.windowId = options.preferWindowId;
   }
   await chrome.tabs.create(createProps);
+};
+
+const coerceLastAccessed = (tab: chrome.tabs.Tab): number => {
+  // Chrome tabs have lastAccessed but @types/chrome doesn't include it
+  const raw = (tab as chrome.tabs.Tab & { lastAccessed?: number }).lastAccessed;
+  const value = typeof raw === "number" && Number.isFinite(raw) ? raw : Date.now();
+  return Math.round(value);
 };
 
 const subscribeTabEvents = () => {

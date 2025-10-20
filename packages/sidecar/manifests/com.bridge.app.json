@@ -1,0 +1,9 @@
+﻿{
+    "path":  "C:\\Users\\Johannes\\Documents\\Programming\\bridge workspace\\packages\\sidecar\\target\\release\\bridge-sidecar.exe",
+    "description":  "Bridge between extension and Tauri app",
+    "name":  "com.bridge.app",
+    "allowed_origins":  [
+                            "chrome-extension://anlnmjdkhinpnimhpeafdchenbhjdble/"
+                        ],
+    "type":  "stdio"
+}
