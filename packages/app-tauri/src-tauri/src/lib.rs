@@ -1,9 +1,9 @@
-use tauri::Manager;
-use serde::{Deserialize, Serialize};
+mod bridge_ws;
 
-// ============================================================================
-// DATA STRUCTURES
-// ============================================================================
+use bridge_ws::BridgeHandle;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tauri::{Manager, State};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TestResponse {
@@ -11,48 +11,51 @@ struct TestResponse {
     timestamp: String,
 }
 
-// ============================================================================
-// TAURI COMMANDS
-// ============================================================================
+#[derive(Clone)]
+struct BridgeState(BridgeHandle);
 
 #[tauri::command]
 async fn greet(name: String) -> Result<String, String> {
-    println!("Greeting: {}", name);
-    Ok(format!("Hello, {}! Welcome to MapMap Test App.", name))
+    println!("[bridge-app] greeting {name}");
+    Ok(format!("Hello, {name}! Welcome to MapMap Test App."))
 }
 
 #[tauri::command]
 async fn test_command() -> Result<TestResponse, String> {
-    println!("Test command invoked");
+    println!("[bridge-app] test command invoked");
     Ok(TestResponse {
         message: "Test command executed successfully".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
     })
 }
 
-// ============================================================================
-// SETUP
-// ============================================================================
+#[tauri::command]
+async fn bridge_send(state: State<'_, BridgeState>, envelope: Value) -> Result<(), String> {
+    let payload = serde_json::to_string(&envelope).map_err(|err| err.to_string())?;
+    state
+        .0
+        .send(payload)
+        .await
+        .map_err(|err| format!("failed to deliver message to sidecar: {err}"))
+}
 
 async fn setup(app: tauri::AppHandle) -> Result<(), String> {
-    println!("🚀 Application setup starting...");
-    
+    println!("[bridge-app] async setup starting");
+
     if let Some(main_window) = app.get_webview_window("main") {
-        println!("✅ Main window found");
         let _ = main_window.show();
+        println!("[bridge-app] main window restored");
+    } else {
+        println!("[bridge-app] main window missing during setup");
     }
-    
-    println!("✅ Setup complete");
+
+    println!("[bridge-app] async setup complete");
     Ok(())
 }
 
-// ============================================================================
-// MAIN APPLICATION
-// ============================================================================
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    println!("MapMap Test App starting...");
+    println!("[bridge-app] starting");
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -60,35 +63,39 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(|_app_handle, shortcut, event| {
-                if let tauri_plugin_global_shortcut::ShortcutState::Pressed = event.state() {
-                    println!("🎯 Global shortcut triggered: {:?}", shortcut);
-                }
-            })
-            .build())
-        .invoke_handler(tauri::generate_handler![
-            greet,
-            test_command,
-        ])
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|_app_handle, shortcut, event| {
+                    if let tauri_plugin_global_shortcut::ShortcutState::Pressed = event.state() {
+                        println!("[bridge-app] global shortcut triggered: {shortcut:?}");
+                    }
+                })
+                .build(),
+        )
+        .invoke_handler(tauri::generate_handler![greet, test_command, bridge_send])
         .setup(|app| {
-            println!("Builder setup starting...");
+            println!("[bridge-app] builder setup starting");
+
+            let bridge_handle = bridge_ws::spawn(&app.handle());
+            app.manage(BridgeState(bridge_handle.clone()));
+
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = setup(app_handle).await {
-                    eprintln!("❌ Setup failed: {}", e);
+                if let Err(err) = setup(app_handle).await {
+                    eprintln!("[bridge-app] async setup failed: {err}");
                 }
             });
+
+            println!("[bridge-app] builder setup complete");
             Ok(())
         });
 
-    println!("Running application...");
+    println!("[bridge-app] running event loop");
     match builder.run(tauri::generate_context!()) {
-        Ok(_) => println!("✅ Application exited normally"),
-        Err(e) => {
-            eprintln!("❌ Application failed to run: {:?}", e);
+        Ok(_) => println!("[bridge-app] clean shutdown"),
+        Err(err) => {
+            eprintln!("[bridge-app] runtime error: {err:?}");
             std::process::exit(1);
         }
     }
 }
-
