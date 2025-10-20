@@ -7,7 +7,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "composite": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "module": "NodeNext"
   },
   "include": ["src"]
 }
