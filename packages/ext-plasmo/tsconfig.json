@@ -1,0 +1,23 @@
+{
+  "extends": "plasmo/templates/tsconfig.base",
+  "include": [
+    ".plasmo/index.d.ts",
+    "components/**/*",
+    "hooks/**/*",
+    "constants/**/*",
+    "types/**/*",
+    "background/**/*",
+    "utils/**/*",
+    "popup/**/*",
+    "content.tsx",
+    "popup.tsx"
+  ],
+  "exclude": ["node_modules", "components/plasmic/*.css"],
+  "compilerOptions": {
+    "paths": {
+      "~/*": ["./*"]
+    },
+    "baseUrl": ".",
+    "verbatimModuleSyntax": false
+  }
+}

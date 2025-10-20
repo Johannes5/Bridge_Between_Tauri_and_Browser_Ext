@@ -1,0 +1,61 @@
+@import "../assets/styles/styles.css";
+
+html {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  min-width: min-content;
+}
+
+html,
+body {
+  resize: both;
+  overflow: auto;
+}
+
+.custom-scrollbar {
+  @apply [&::-webkit-scrollbar]:w-[8px] [&::-webkit-scrollbar]:h-[8px]
+    [&::-webkit-scrollbar-track]:bg-[#f00] [&::-webkit-scrollbar-track]:rounded-[4px]
+    [&::-webkit-scrollbar-thumb]:bg-[#f00] [&::-webkit-scrollbar-thumb]:rounded-[4px] [&::-webkit-scrollbar-thumb]:transition-[background_0.2s_ease]
+    [&::-webkit-scrollbar-thumb:hover]:bg-[#666]
+    [&::-webkit-scrollbar-corner]:bg-[#f1f1f1]
+    [scrollbar-width:thin] [scrollbar-color:_#888_#f1f1f1];
+}
+
+/* Modern scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+}
+
+::-webkit-scrollbar-track {
+  background: #f00 !important; /* #f1f1f1 !important; */
+  border-radius: 4px !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #f00 !important; /*#888 !important;*/
+  border-radius: 4px !important;
+  transition: background 0.2s ease !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #666 !important;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin !important;
+  scrollbar-color: #888 #f1f1f1 !important;
+}
+
+/* For when scrollbar corner is visible */
+::-webkit-scrollbar-corner {
+  background: #f1f1f1 !important;
+}

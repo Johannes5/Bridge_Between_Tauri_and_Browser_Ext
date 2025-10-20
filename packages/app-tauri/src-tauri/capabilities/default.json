@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "identifier": "default",
+  "description": "Default capabilities for the test app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read",
+    "fs:allow-write",
+    "clipboard-manager:allow-read",
+    "clipboard-manager:allow-write"
+  ]
+}
+

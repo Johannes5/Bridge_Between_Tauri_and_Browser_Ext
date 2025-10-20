@@ -1,0 +1,10 @@
+# Icon files should be placed here
+# Required icons:
+# - 32x32.png
+# - 128x128.png
+# - icon.icns (macOS)
+# - icon.ico (Windows)
+#
+# You can copy these from packages/client/src-tauri/icons/
+# or generate new ones using: https://tauri.app/v1/guides/building/icons
+
