@@ -1,0 +1,27 @@
+{
+  "name": "bridge-workspace",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "setup": "pnpm -r install",
+    "build:proto": "pnpm --filter @bridge/shared-proto build",
+    "dev:app": "pnpm --filter app-tauri tauri dev",
+    "dev:ext": "pnpm --filter ext-plasmo plasmo dev",
+    "build:ext": "pnpm --filter ext-plasmo plasmo build",
+    "typecheck": "pnpm -r run type-check",
+    "lint": "pnpm -r run lint",
+    "test:bridge": "TS_NODE_TRANSPILE_ONLY=1 ts-node --esm tools/tester.ts",
+    "mcp:runner": "ts-node --esm tools/mcp-runner.ts"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^0.1.2",
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^20.16.5",
+    "ts-node": "^10.9.2",
+    "tslib": "^2.7.0",
+    "typescript": "^5.6.3",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  }
+}
