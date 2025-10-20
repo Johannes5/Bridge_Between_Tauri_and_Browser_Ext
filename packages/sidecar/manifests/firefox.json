@@ -1,0 +1,9 @@
+﻿{
+  "name": "com.bridge.app",
+  "description": "Bridge between MapMap desktop app and extension",
+  "path": "C:\\Users\\Johannes\\Documents\\Programming\\bridge workspace\\packages\\sidecar\\target\\release\\bridge-sidecar.exe",
+  "type": "stdio",
+  "allowed_extensions": [
+    "your-firefox-extension-id"
+  ]
+}
