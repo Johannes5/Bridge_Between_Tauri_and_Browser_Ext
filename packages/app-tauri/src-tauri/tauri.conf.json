@@ -33,6 +33,12 @@
       "icons/128x128.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "externalBin": [
+      "../sidecar/target/release/bridge-sidecar"
+    ],
+    "resources": [
+      "resources/*"
     ]
   },
   "plugins": {
