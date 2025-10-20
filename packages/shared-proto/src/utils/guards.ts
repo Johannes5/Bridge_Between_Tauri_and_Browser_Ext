@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { EnvelopeSchema } from "../schemas/envelope.js";
 import {
   PresenceQueryPayloadSchema,
@@ -19,6 +20,7 @@ export const isEnvelope = (value: unknown): value is ReturnType<typeof EnvelopeS
 
 export const payloadParsers = {
   "tabs.list": TabsListPayloadSchema,
+  "tabs.list.request": z.undefined().optional(),
   "tabs.openOrFocus": TabsOpenOrFocusPayloadSchema,
   "presence.query": PresenceQueryPayloadSchema,
   "presence.status": PresenceStatusPayloadSchema

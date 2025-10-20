@@ -54,7 +54,7 @@ async function main() {
     throw new Error(`Expected a tab starting with ${TEST_URL}, but got ${urls.join(", ")}`);
   }
 
-  console.log("[tester] ✔ openOrFocus verified");
+  console.log("[tester] openOrFocus verified");
 
   await ws.close();
   await context.close();
@@ -103,6 +103,6 @@ function randomId(): string {
 }
 
 main().catch((error) => {
-  console.error("[tester] ❌ failed:", error);
+  console.error("[tester] failed:", error);
   process.exit(1);
 });

@@ -132,7 +132,7 @@ server.setRequestHandler("tools/call", async (req) => {
 function resolvePath(input?: unknown): string {
   const target = path.resolve(ROOT, String(input ?? ""));
   const relative = path.relative(ROOT, target);
-  if (relative.startsWith("..") || path.isAbsolute(relative) && relative !== "") {
+  if (relative.startsWith("..") || (path.isAbsolute(relative) && relative !== "")) {
     throw new Error(`Path ${target} escapes workspace root`);
   }
   return target;
@@ -153,7 +153,7 @@ async function exec(cmd: string, args: string[]): Promise<string> {
     });
     child.on("close", (code) => {
       if (code === 0) {
-        resolve(stdout.trim());
+        resolve((stdout + (stderr ? "\n" + stderr : "")).trim());
       } else {
         reject(new Error(`Command ${cmd} ${args.join(" ")} failed (${code}): ${stderr.trim()}`));
       }
@@ -166,3 +166,5 @@ transport.connect(server).catch((err) => {
   console.error("Failed to start bridge-runner MCP server:", err);
   process.exit(1);
 });
+
+

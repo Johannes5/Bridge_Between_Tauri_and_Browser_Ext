@@ -15,6 +15,7 @@ export type TabDescriptor = z.infer<typeof TabDescriptorSchema>;
 
 export const TabsListPayloadSchema = z.object({
   windowId: z.number().int().optional().nullable(),
+  reason: z.string().optional(),
   tabs: z.array(TabDescriptorSchema)
 });
 

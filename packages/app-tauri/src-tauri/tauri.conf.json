@@ -38,7 +38,8 @@
       "../sidecar/target/release/bridge-sidecar"
     ],
     "resources": [
-      "resources/*"
+      "resources/*",
+      "../sidecar/manifests/*"
     ]
   },
   "plugins": {
@@ -53,4 +54,5 @@
     }
   }
 }
+
 

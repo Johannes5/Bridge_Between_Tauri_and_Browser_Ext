@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
-use std::sync::{Arc, Mutex};
+use std::{env, sync::{Arc, Mutex}};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
@@ -31,8 +31,9 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
     }
   });
 
-  #[cfg(debug_assertions)]
-  {
+  let debug_enabled =
+    cfg!(debug_assertions) || env::var("BRIDGE_DEBUG_WS").map(|v| v == "1").unwrap_or(false);
+  if debug_enabled {
     let hub_for_debug = hub.clone();
     let sender_for_debug = to_sidecar_tx.clone();
     tauri::async_runtime::spawn(async move {
@@ -134,7 +135,11 @@ impl BridgeHandle {
   }
 }
 
-async fn run_debug_listener(port: u16, hub: DebugHub, to_sidecar_tx: mpsc::Sender<String>) -> Result<()> {
+async fn run_debug_listener(
+  port: u16,
+  hub: DebugHub,
+  to_sidecar_tx: mpsc::Sender<String>,
+) -> Result<()> {
   let listener = TcpListener::bind(("127.0.0.1", port))
     .await
     .with_context(|| format!("binding debug ws on 127.0.0.1:{port}"))?;

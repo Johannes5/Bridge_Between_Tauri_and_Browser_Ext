@@ -19,6 +19,13 @@ const scheduleReconnect = (delay = 1500) => {
 };
 
 const connectNative = () => {
+  if (nativePort) {
+    return;
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  }
   try {
     nativePort = chrome.runtime.connectNative(HOST_NAME);
   } catch (error) {
