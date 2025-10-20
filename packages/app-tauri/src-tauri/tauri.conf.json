@@ -35,11 +35,11 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "../sidecar/target/release/bridge-sidecar"
+      "../../sidecar/target/release/bridge-sidecar"
     ],
     "resources": [
       "resources/*",
-      "../sidecar/manifests/*"
+      "../../sidecar/manifests/*"
     ]
   },
   "plugins": {

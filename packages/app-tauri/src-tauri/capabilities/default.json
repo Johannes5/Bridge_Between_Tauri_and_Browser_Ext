@@ -10,8 +10,8 @@
     "dialog:allow-save",
     "fs:allow-read",
     "fs:allow-write",
-    "clipboard-manager:allow-read",
-    "clipboard-manager:allow-write"
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text"
   ]
 }
 

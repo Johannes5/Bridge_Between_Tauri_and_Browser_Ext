@@ -5,6 +5,7 @@ use std::{env, sync::{Arc, Mutex}};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tauri::Emitter;
 
 const APP_WS_PORT: u16 = 17342;
 const DEBUG_WS_PORT: u16 = 17888;
@@ -20,7 +21,7 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
   tauri::async_runtime::spawn(async move {
     while let Some(msg) = from_sidecar_rx.recv().await {
       incoming_hub.broadcast(&msg);
-      let _ = app_handle.emit_all("bridge://incoming", msg);
+      let _ = app_handle.emit("bridge://incoming", msg);
     }
   });
 
@@ -94,6 +95,45 @@ async fn run_sidecar_listener(
               .to_string();
               let _ = tx_clone.send(payload).await;
             }
+            Some(Ok(Message::Ping(payload))) => {
+              let info = json!({
+                "v": 1,
+                "type": "debug.ping",
+                "payload": { "bytes": payload.len() }
+              })
+              .to_string();
+              hub_clone.broadcast(&info);
+              if write.send(Message::Pong(payload)).await.is_err() {
+                break;
+              }
+            }
+            Some(Ok(Message::Pong(payload))) => {
+              let info = json!({
+                "v": 1,
+                "type": "debug.pong",
+                "payload": { "bytes": payload.len() }
+              })
+              .to_string();
+              hub_clone.broadcast(&info);
+            }
+            Some(Ok(Message::Close(frame))) => {
+              let code = frame.as_ref().map(|f| u16::from(f.code));
+              let reason = frame.as_ref().and_then(|f| {
+                let text = f.reason.to_string();
+                if text.is_empty() { None } else { Some(text) }
+              });
+              let info = json!({
+                "v": 1,
+                "type": "debug.close",
+                "payload": { "code": code, "reason": reason }
+              })
+              .to_string();
+              hub_clone.broadcast(&info);
+              break;
+            }
+            Some(Ok(Message::Frame(_))) => {
+              // ignore internal frames
+            }
             Some(Err(err)) => {
               eprintln!("[app] ws read error: {err:#}");
               break;
@@ -148,44 +188,81 @@ async fn run_debug_listener(
     let (stream, _) = listener.accept().await?;
     let ws_stream = accept_async(stream).await?;
     let (mut write, mut read) = ws_stream.split();
-
     let mut rx = hub.register();
     let hub_clone = hub.clone();
     let to_sidecar = to_sidecar_tx.clone();
 
-    let forward = tokio::spawn(async move {
-      while let Some(msg) = rx.recv().await {
-        if write.send(Message::Text(msg)).await.is_err() {
-          break;
-        }
-      }
-    });
-
     tokio::spawn(async move {
-      while let Some(incoming) = read.next().await {
-        match incoming {
-          Ok(Message::Text(txt)) => {
-            hub_clone.broadcast(&txt);
-            if to_sidecar.send(txt).await.is_err() {
+      loop {
+        tokio::select! {
+          Some(outbound) = rx.recv() => {
+            if write.send(Message::Text(outbound)).await.is_err() {
               break;
             }
           }
-          Ok(Message::Binary(bin)) => {
-            let payload = json!({
-              "v": 1,
-              "type": "debug.binary",
-              "payload": { "bytes": bin.len() }
-            })
-            .to_string();
-            hub_clone.broadcast(&payload);
-          }
-          Err(err) => {
-            eprintln!("[app] debug ws error: {err:#}");
-            break;
+          incoming = read.next() => {
+            match incoming {
+              Some(Ok(Message::Text(txt))) => {
+                hub_clone.broadcast(&txt);
+                if to_sidecar.send(txt).await.is_err() {
+                  break;
+                }
+              }
+              Some(Ok(Message::Binary(bin))) => {
+                let payload = json!({
+                  "v": 1,
+                  "type": "debug.binary",
+                  "payload": { "bytes": bin.len() }
+                })
+                .to_string();
+                hub_clone.broadcast(&payload);
+              }
+              Some(Ok(Message::Ping(payload))) => {
+                let info = json!({
+                  "v": 1,
+                  "type": "debug.ping",
+                  "payload": { "bytes": payload.len() }
+                })
+                .to_string();
+                hub_clone.broadcast(&info);
+                if write.send(Message::Pong(payload)).await.is_err() {
+                  break;
+                }
+              }
+              Some(Ok(Message::Pong(payload))) => {
+                let info = json!({
+                  "v": 1,
+                  "type": "debug.pong",
+                  "payload": { "bytes": payload.len() }
+                })
+                .to_string();
+                hub_clone.broadcast(&info);
+              }
+              Some(Ok(Message::Close(frame))) => {
+                let code = frame.as_ref().map(|f| u16::from(f.code));
+                let reason = frame.as_ref().and_then(|f| {
+                  let text = f.reason.to_string();
+                  if text.is_empty() { None } else { Some(text) }
+                });
+                let info = json!({
+                  "v": 1,
+                  "type": "debug.close",
+                  "payload": { "code": code, "reason": reason }
+                })
+                .to_string();
+                hub_clone.broadcast(&info);
+                break;
+              }
+              Some(Ok(Message::Frame(_))) => { /* ignore */ }
+              Some(Err(err)) => {
+                eprintln!("[app] debug ws error: {err:#}");
+                break;
+              }
+              None => break,
+            }
           }
         }
       }
-      forward.abort();
     });
   }
 }
