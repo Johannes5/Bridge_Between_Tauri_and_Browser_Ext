@@ -6,6 +6,7 @@ export const TabDescriptorSchema = z.object({
   title: z.string().optional(),
   favIconUrl: z.string().url().optional(),
   lastAccessed: z.number().int().optional(),
+  windowId: z.number().int().optional(),
   groupId: z.number().int().optional(),
   pinned: z.boolean().optional()
 });

@@ -2,7 +2,7 @@ import { chromium, BrowserContext } from "@playwright/test";
 import path from "node:path";
 import process from "node:process";
 import WebSocket from "ws";
-import { z } from "zod";
+import { EnvelopeSchema, type Envelope } from "@bridge/shared-proto";
 
 const EXT_PATH = process.env.EXT_PATH ?? path.resolve("packages/ext-plasmo/build");
 const EXT_ID = process.env.EXT_ID;
@@ -13,23 +13,11 @@ if (!EXT_ID) {
   throw new Error("Set EXT_ID=<extension id> before running the bridge tester");
 }
 
-const Envelope = z.object({
-  v: z.literal(1),
-  id: z.string().optional(),
-  type: z.string(),
-  payload: z.unknown().optional()
-});
-
-type Envelope = z.infer<typeof Envelope>;
-
 async function main() {
   console.log("[tester] launching chromium with extension:", EXT_PATH);
   const context = await chromium.launchPersistentContext("", {
-    headless: false,
-    args: [
-      `--disable-extensions-except=${EXT_PATH}`,
-      `--load-extension=${EXT_PATH}`
-    ]
+    headless: true,
+    args: [`--disable-extensions-except=${EXT_PATH}`, `--load-extension=${EXT_PATH}`]
   });
 
   const page = context.pages()[0] ?? (await context.newPage());
@@ -41,7 +29,9 @@ async function main() {
   console.log("[tester] requesting initial tabs.list from extension");
   await sendRuntimeMessage(context, EXT_ID, { type: "test.triggerTabsList" });
   const tabsList1 = await waitOnce(ws, (msg) => msg.type === "tabs.list");
-  const initialCount = (tabsList1.payload as any)?.tabs?.length ?? 0;
+  const initialCount = Array.isArray((tabsList1.payload as any)?.tabs)
+    ? (tabsList1.payload as any).tabs.length
+    : 0;
   console.log(`[tester] tabs.list received with ${initialCount} tab(s)`);
 
   console.log("[tester] injecting tabs.openOrFocus command via debug ws");
@@ -64,7 +54,7 @@ async function main() {
     throw new Error(`Expected a tab starting with ${TEST_URL}, but got ${urls.join(", ")}`);
   }
 
-  console.log("[tester] ✅ openOrFocus verified");
+  console.log("[tester] ✔ openOrFocus verified");
 
   await ws.close();
   await context.close();
@@ -82,7 +72,7 @@ function waitOnce(ws: WebSocket, predicate: (msg: Envelope) => boolean): Promise
   return new Promise((resolve, reject) => {
     const handler = (raw: WebSocket.RawData) => {
       try {
-        const parsed = Envelope.parse(JSON.parse(raw.toString("utf-8")));
+        const parsed = EnvelopeSchema.parse(JSON.parse(raw.toString("utf-8")));
         if (predicate(parsed)) {
           ws.off("message", handler);
           resolve(parsed);

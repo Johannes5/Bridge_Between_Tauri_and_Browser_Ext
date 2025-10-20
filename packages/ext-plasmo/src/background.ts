@@ -63,6 +63,10 @@ const onFromNative = async (raw: unknown) => {
         postToNative({ v: 1, id, type: "ok" });
         break;
       }
+      case "tabs.list.request":
+        await sendCurrentWindowTabs("app-request");
+        postToNative({ v: 1, id, type: "ok" });
+        break;
       case "presence.query":
         postToNative({
           v: 1,
@@ -104,6 +108,7 @@ const sendCurrentWindowTabs = async (reason: string) => {
         title: tab.title ?? undefined,
         favIconUrl: tab.favIconUrl ?? undefined,
         lastAccessed: (tab as chrome.sessions.Session & { lastAccessed?: number }).lastAccessed ?? Date.now(),
+        windowId: tab.windowId ?? undefined,
         groupId: (tab as any).groupId ?? undefined,
         pinned: tab.pinned ?? false
       }))
