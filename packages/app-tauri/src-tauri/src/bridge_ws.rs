@@ -9,19 +9,6 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 const APP_WS_PORT: u16 = 17342;
 const DEBUG_WS_PORT: u16 = 17888;
 
-#[derive(Clone)]
-pub struct BridgeHandle {
-  sender: mpsc::Sender<String>,
-  hub: DebugHub,
-}
-
-impl BridgeHandle {
-  pub async fn send(&self, message: String) -> Result<(), mpsc::error::SendError<String>> {
-    self.hub.broadcast(&message);
-    self.sender.send(message).await
-  }
-}
-
 pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
   let (to_sidecar_tx, to_sidecar_rx) = mpsc::channel::<String>(256);
   let (from_sidecar_tx, mut from_sidecar_rx) = mpsc::channel::<String>(256);
@@ -55,10 +42,7 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
     });
   }
 
-  BridgeHandle {
-    sender: to_sidecar_tx,
-    hub,
-  }
+  BridgeHandle::new(to_sidecar_tx, hub)
 }
 
 async fn run_sidecar_listener(
@@ -127,6 +111,26 @@ async fn run_sidecar_listener(
     .to_string();
     hub_clone.broadcast(&offline_payload);
     let _ = from_sidecar_tx.send(offline_payload).await;
+  }
+}
+
+#[derive(Clone)]
+pub struct BridgeHandle {
+  sender: mpsc::Sender<String>,
+  hub: DebugHub,
+}
+
+impl BridgeHandle {
+  fn new(sender: mpsc::Sender<String>, hub: DebugHub) -> Self {
+    Self { sender, hub }
+  }
+
+  pub async fn send(
+    &self,
+    message: String,
+  ) -> std::result::Result<(), mpsc::error::SendError<String>> {
+    self.hub.broadcast(&message);
+    self.sender.send(message).await
   }
 }
 

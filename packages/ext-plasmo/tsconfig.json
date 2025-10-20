@@ -2,6 +2,7 @@
   "extends": "plasmo/templates/tsconfig.base",
   "include": [
     ".plasmo/index.d.ts",
+    "src/**/*",
     "components/**/*",
     "hooks/**/*",
     "constants/**/*",
