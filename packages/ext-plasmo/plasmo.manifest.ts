@@ -10,7 +10,7 @@ const manifest = {
     page: "options.html",
     open_in_tab: true
   },
-  permissions: ["tabs", "sessions", "nativeMessaging", "windows"],
+  permissions: ["tabs", "sessions", "nativeMessaging", "windows", "scripting"],
   host_permissions: ["http://*/*", "https://*/*"]
 } satisfies chrome.runtime.ManifestV3;
 

@@ -40,7 +40,9 @@ export type TabDescriptor = z.infer<typeof TabDescriptorSchema>;
 export const TabsListPayloadSchema = z.object({
   windowId: z.number().int().optional().nullable(),
   reason: z.string().optional(),
-  tabs: z.array(TabDescriptorSchema)
+  tabs: z.array(TabDescriptorSchema),
+  connectionId: z.string().optional(),
+  browser: z.string().optional()
 });
 
 export type TabsListPayload = z.infer<typeof TabsListPayloadSchema>;
@@ -48,7 +50,27 @@ export type TabsListPayload = z.infer<typeof TabsListPayloadSchema>;
 export const TabsOpenOrFocusPayloadSchema = z.object({
   url: z.preprocess((value) => (typeof value === "string" ? value.trim() : value), relaxedUrlBase),
   preferWindowId: z.number().int().optional(),
-  matchStrategy: z.enum(["exact", "origin", "path"]).default("exact")
+  matchStrategy: z.enum(["exact", "origin", "path"]).default("exact"),
+  connectionId: z.string().optional()
 });
 
 export type TabsOpenOrFocusPayload = z.infer<typeof TabsOpenOrFocusPayloadSchema>;
+
+export const TabsSavedPayloadSchema = TabsListPayloadSchema.extend({
+  savedAt: z.number().int().nonnegative(),
+  label: z.string().min(1).optional(),
+  source: z.enum(["app", "extension"]).optional()
+});
+
+export type TabsSavedPayload = z.infer<typeof TabsSavedPayloadSchema>;
+
+export const TabsRestorePayloadSchema = z.object({
+  urls: z.array(relaxedUrlBase).min(1),
+  newWindow: z.boolean().optional().default(true),
+  focused: z.boolean().optional().default(true),
+  suspend: z.boolean().optional().default(false),
+  connectionId: z.string().optional()
+});
+
+export type TabsRestorePayload = z.infer<typeof TabsRestorePayloadSchema>;
+

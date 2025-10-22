@@ -12,9 +12,123 @@ use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
+fn detect_browser() -> String {
+    // Try environment variable first
+    if let Ok(browser) = env::var("BRIDGE_BROWSER") {
+        return browser;
+    }
+    
+    // Try to detect from parent process name
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(parent) = get_parent_process_name() {
+            let lower = parent.to_lowercase();
+            if lower.contains("chrome.exe") {
+                return "Chrome".to_string();
+            } else if lower.contains("msedge.exe") {
+                return "Edge".to_string();
+            } else if lower.contains("brave.exe") {
+                return "Brave".to_string();
+            } else if lower.contains("comet.exe") || lower.contains("perplexity") {
+                return "Comet".to_string();
+            }
+            return parent;
+        }
+    }
+    
+    "Unknown".to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn get_parent_process_name() -> Option<String> {
+    use std::process::Command;
+    
+    let current_pid = std::process::id();
+    
+    // Get all ancestor processes (traverse up the tree)
+    let mut check_pid = current_pid;
+    let mut depth = 0;
+    
+    while depth < 5 { // Check up to 5 levels up
+        let output = Command::new("wmic")
+            .args(&[
+                "process",
+                "where",
+                &format!("ProcessId={}", check_pid),
+                "get",
+                "ParentProcessId,Name",
+                "/value"
+            ])
+            .output()
+            .ok()?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        let name = stdout
+            .lines()
+            .find(|line| line.starts_with("Name="))?
+            .trim_start_matches("Name=")
+            .trim()
+            .to_string();
+        
+        let parent_pid: u32 = stdout
+            .lines()
+            .find(|line| line.starts_with("ParentProcessId="))?
+            .trim_start_matches("ParentProcessId=")
+            .trim()
+            .parse()
+            .ok()?;
+        
+        // Check if this is a browser process
+        let lower = name.to_lowercase();
+        if lower.contains("chrome.exe") 
+            || lower.contains("msedge.exe") 
+            || lower.contains("brave.exe") 
+            || lower.contains("comet.exe")
+            || lower.contains("firefox.exe") {
+            return Some(name);
+        }
+        
+        // Skip intermediate processes - keep looking up the tree
+        if lower == "cmd.exe" 
+            || lower == "conhost.exe" 
+            || lower.contains("bridge-sidecar") {
+            check_pid = parent_pid;
+            depth += 1;
+            continue;
+        }
+        
+        // If we found something else that's not browser-related, return it
+        if !lower.is_empty() {
+            return Some(name);
+        }
+        
+        check_pid = parent_pid;
+        depth += 1;
+    }
+    
+    None
+}
+
+fn generate_connection_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let random_part: u32 = std::process::id();
+    format!("{:x}-{:x}", timestamp, random_part)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let app_ws = env::var("APP_WS").unwrap_or_else(|_| DEFAULT_APP_WS.to_string());
+    let connection_id = generate_connection_id();
+    let browser = detect_browser();
+    
+    eprintln!("[sidecar] Connection ID: {}", connection_id);
+    eprintln!("[sidecar] Browser: {}", browser);
+    
     let (to_app_tx, to_app_rx) = mpsc::channel::<String>(256);
     let (to_extension_tx, to_extension_rx) = mpsc::channel::<String>(256);
 
@@ -23,8 +137,17 @@ async fn main() -> Result<()> {
     // Spawn bridge loop (sidecar <-> app ws)
     let hub_for_bridge = hub.clone();
     let to_extension_tx_for_bridge = to_extension_tx.clone();
+    let connection_id_for_bridge = connection_id.clone();
+    let browser_for_bridge = browser.clone();
     tokio::spawn(async move {
-        if let Err(err) = bridge_to_app(app_ws, to_app_rx, to_extension_tx_for_bridge, hub_for_bridge).await {
+        if let Err(err) = bridge_to_app(
+            app_ws,
+            to_app_rx,
+            to_extension_tx_for_bridge,
+            hub_for_bridge,
+            connection_id_for_bridge,
+            browser_for_bridge
+        ).await {
             eprintln!("[sidecar] app bridge exited: {err:#}");
         }
     });
@@ -100,6 +223,8 @@ async fn bridge_to_app(
     mut to_app_rx: mpsc::Receiver<String>,
     to_extension_tx: mpsc::Sender<String>,
     hub: DebugHub,
+    connection_id: String,
+    browser: String,
 ) -> Result<()> {
     loop {
         match connect_async(&app_ws).await {
@@ -107,14 +232,25 @@ async fn bridge_to_app(
                 let presence_msg = json!({
                     "v": 1,
                     "type": "presence.status",
-                    "payload": { "sidecar": "online", "timestamp": unix_ms() }
+                    "payload": {
+                        "sidecar": "online",
+                        "timestamp": unix_ms(),
+                        "connectionId": connection_id,
+                        "browser": browser
+                    }
                 })
                 .to_string();
 
                 hub.broadcast(&presence_msg);
-                let _ = to_extension_tx.send(presence_msg).await;
+                let _ = to_extension_tx.send(presence_msg.clone()).await;
 
                 let (mut write, mut read) = ws_stream.split();
+                
+                // Send presence to the Tauri app immediately after connection
+                if write.send(Message::Text(presence_msg)).await.is_err() {
+                    eprintln!("[sidecar] Failed to send presence message to app");
+                    continue;
+                }
 
                 loop {
                     tokio::select! {

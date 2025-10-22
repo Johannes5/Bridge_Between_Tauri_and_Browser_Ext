@@ -6,7 +6,9 @@ import {
 } from "../schemas/presence.js";
 import {
   TabsListPayloadSchema,
-  TabsOpenOrFocusPayloadSchema
+  TabsOpenOrFocusPayloadSchema,
+  TabsSavedPayloadSchema,
+  TabsRestorePayloadSchema
 } from "../schemas/tabs.js";
 
 export const isEnvelope = (value: unknown): value is ReturnType<typeof EnvelopeSchema.parse> => {
@@ -22,6 +24,8 @@ export const payloadParsers = {
   "tabs.list": TabsListPayloadSchema,
   "tabs.list.request": z.undefined().optional(),
   "tabs.openOrFocus": TabsOpenOrFocusPayloadSchema,
+  "tabs.save": TabsSavedPayloadSchema,
+  "tabs.restore": TabsRestorePayloadSchema,
   "presence.query": PresenceQueryPayloadSchema,
   "presence.status": PresenceStatusPayloadSchema
 } as const;
