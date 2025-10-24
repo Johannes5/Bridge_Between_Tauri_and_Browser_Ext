@@ -5,7 +5,8 @@ import {
   TabsOpenOrFocusPayloadSchema,
   TabsSavedPayloadSchema,
   TabsRestorePayloadSchema,
-  PresenceStatusPayloadSchema
+  PresenceStatusPayloadSchema,
+  FocusWindowPayloadSchema
 } from "@bridge/shared-proto";
 
 const HOST_NAME = "com.bridge.app";
@@ -22,6 +23,27 @@ const randomId = (): string => {
     return globalCrypto.randomUUID();
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
+const notifyFocusWindow = (windowId?: number | null, title?: string | null, url?: string | null) => {
+  try {
+    const payload = FocusWindowPayloadSchema.parse({
+      windowId: windowId ?? undefined,
+      title: title ?? undefined,
+      url: url ?? undefined,
+      browser: browser ?? undefined,
+      connectionId: connectionId ?? undefined
+    });
+
+    postToNative({
+      v: 1,
+      id: randomId(),
+      type: "focus.window",
+      payload
+    });
+  } catch (error) {
+    console.warn("[bridge-ext] failed to send focus.window message", error);
+  }
 };
 
 const serializeTab = (tab: chrome.tabs.Tab) => ({
@@ -233,7 +255,15 @@ const restoreTabs = async (options: {
   newWindow?: boolean;
   focused?: boolean;
   suspend?: boolean;
+  connectionId?: string;
 }) => {
+  if (options.connectionId && connectionId && options.connectionId !== connectionId) {
+    console.log(
+      `[bridge-ext] ignoring tabs.restore for ${options.connectionId}, current connection ${connectionId}`
+    );
+    return;
+  }
+
   const urls = options.urls.filter((u) => typeof u === "string" && u.length > 0);
   if (urls.length === 0) {
     return;
@@ -280,12 +310,26 @@ const restoreTabs = async (options: {
       }
     }
 
+    if (suspend && placeholderTabId != null) {
+      try {
+        await chrome.tabs.remove(placeholderTabId);
+      } catch {
+        // ignore if the placeholder tab was already closed
+      }
+    }
+
     if (!suspend && focused) {
       const toActivate = firstTabId ?? placeholderTabId;
       if (toActivate != null) {
         await chrome.tabs.update(toActivate, { active: true });
       }
     }
+
+    notifyFocusWindow(
+      windowId,
+      urls[0] ?? options.url,
+      urls[0] ?? options.url
+    );
 
     return;
   }
@@ -327,6 +371,12 @@ const restoreTabs = async (options: {
       await chrome.tabs.update(firstTabId, { active: true });
     }
   }
+
+  notifyFocusWindow(
+    targetWindowId === chrome.windows.WINDOW_ID_NONE ? undefined : targetWindowId,
+    urls[0] ?? options.url,
+    urls[0] ?? options.url
+  );
 };
 
 const discardTab = async (tabId?: number, waitForLoad = false) => {
@@ -410,10 +460,17 @@ const pauseMediaInTab = async (tabId?: number) => {
 };
 
 const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
-  console.log("[bridge-ext] openOrFocus called with:", { 
-    url: options.url, 
+  if (options.connectionId && connectionId && options.connectionId !== connectionId) {
+    console.log(
+      `[bridge-ext] ignoring tabs.openOrFocus for ${options.connectionId}, current connection ${connectionId}`
+    );
+    return;
+  }
+
+  console.log("[bridge-ext] openOrFocus called with:", {
+    url: options.url,
     matchStrategy: options.matchStrategy,
-    connectionId: options.connectionId 
+    connectionId: options.connectionId
   });
   
   const target = new URL(options.url);
@@ -494,6 +551,12 @@ const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
       // No window ID, just try to activate the tab
       await chrome.tabs.update(match.id, { active: true });
     }
+
+    notifyFocusWindow(
+      match.windowId ?? undefined,
+      match.title ?? match.url ?? options.url,
+      match.url ?? options.url
+    );
     return;
   }
 
@@ -507,7 +570,24 @@ const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
       // window no longer exists; allow Chrome to pick the default target
     }
   }
-  await chrome.tabs.create(createProps);
+  const createdTab = await chrome.tabs.create(createProps);
+
+  const targetWindowId =
+    createdTab.windowId ?? createProps.windowId ?? chrome.windows.WINDOW_ID_NONE;
+
+  if (targetWindowId !== chrome.windows.WINDOW_ID_NONE) {
+    try {
+      await chrome.windows.update(targetWindowId, { focused: true, drawAttention: true });
+    } catch (error) {
+      console.warn("[bridge-ext] failed to focus new window after tab create", error);
+    }
+  }
+
+  notifyFocusWindow(
+    targetWindowId === chrome.windows.WINDOW_ID_NONE ? undefined : targetWindowId,
+    createdTab.title ?? createdTab.url ?? options.url,
+    createdTab.url ?? options.url
+  );
 };
 
 const coerceLastAccessed = (tab: chrome.tabs.Tab): number => {

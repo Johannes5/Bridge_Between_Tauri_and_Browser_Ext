@@ -55,6 +55,7 @@ temp/
 
 # Rust specific
 **/target/
+**/target-temp/
 **/*.rs.bk
 Cargo.lock
 

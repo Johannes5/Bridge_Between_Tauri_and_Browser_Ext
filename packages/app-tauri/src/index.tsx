@@ -114,6 +114,16 @@ const App: React.FC = () => {
     return firstWithUrl ?? null;
   }, []);
 
+
+  const focusBrowserWindow = React.useCallback(async () => {
+    try {
+      const windowHandle = getCurrentWindow();
+      await windowHandle.minimize();
+    } catch (err) {
+      console.warn("[bridge-app] failed to minimize window", err);
+    }
+  }, []);
+
   const addSavedCollection = React.useCallback(
     (payload: TabsSavedPayload) => {
       const entry: SavedTabCollection = {
@@ -266,26 +276,39 @@ const App: React.FC = () => {
     if (!tab.url) {
       return;
     }
-    
+
+    let targetConnectionId = options?.connectionId;
+    if (targetConnectionId && !browserTabs.has(targetConnectionId)) {
+      console.warn("[bridge-app] target connection stale; falling back");
+      targetConnectionId = getDefaultConnectionId();
+    }
+    if (!targetConnectionId) {
+      targetConnectionId = getDefaultConnectionId();
+      if (!targetConnectionId) {
+        console.warn("[bridge-app] no browser connection available");
+        return;
+      }
+    }
+
     const payload = {
       url: tab.url,
-      matchStrategy: options?.matchStrategy ?? "origin",
+      matchStrategy: options?.matchStrategy ?? "exact",
       preferWindowId:
         options?.preferWindowId != null
           ? options.preferWindowId ?? undefined
           : tab.windowId ?? undefined,
-      connectionId: options?.connectionId
+      connectionId: targetConnectionId
     };
-    
+
     console.log("[bridge-app] Sending tabs.openOrFocus:", payload);
     
+    await focusBrowserWindow();
     await sendEnvelope({
       v: 1,
       id: randomId(),
       type: "tabs.openOrFocus",
       payload: TabsOpenOrFocusPayloadSchema.parse(payload)
     });
-    // Don't minimize app - let browser handle window focusing
   };
 
   const handleRequestTabs = async () => {
@@ -303,17 +326,17 @@ const App: React.FC = () => {
       return;
     }
     
+    await focusBrowserWindow();
     await sendEnvelope({
       v: 1,
       id: randomId(),
       type: "tabs.openOrFocus",
       payload: {
-        url: "https://example.com/bridge-test", 
+        url: "https://example.com/bridge-test",
         matchStrategy: "origin",
         connectionId: targetConnectionId
       }
     });
-    // Don't minimize app - let browser handle window focusing
   };
 
   const handleSaveCurrentTabs = React.useCallback((snapshot: BrowserTabSnapshot) => {
@@ -402,15 +425,15 @@ const App: React.FC = () => {
       
       console.log("[bridge-app] Sending tabs.restore:", payload);
       
+      await focusBrowserWindow();
       await sendEnvelope({
         v: 1,
         id: randomId(),
         type: "tabs.restore",
         payload
       });
-      // Don't minimize app - let browser handle window focusing
     },
-    [browserTabs, sendEnvelope]
+    [browserTabs, focusBrowserWindow, sendEnvelope]
   );
 
   const toggleSavedExpanded = React.useCallback((id: string) => {

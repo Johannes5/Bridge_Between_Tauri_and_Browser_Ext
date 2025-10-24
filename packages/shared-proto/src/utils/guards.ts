@@ -10,6 +10,7 @@ import {
   TabsSavedPayloadSchema,
   TabsRestorePayloadSchema
 } from "../schemas/tabs.js";
+import { FocusWindowPayloadSchema } from "../schemas/window.js";
 
 export const isEnvelope = (value: unknown): value is ReturnType<typeof EnvelopeSchema.parse> => {
   try {
@@ -26,6 +27,7 @@ export const payloadParsers = {
   "tabs.openOrFocus": TabsOpenOrFocusPayloadSchema,
   "tabs.save": TabsSavedPayloadSchema,
   "tabs.restore": TabsRestorePayloadSchema,
+  "focus.window": FocusWindowPayloadSchema,
   "presence.query": PresenceQueryPayloadSchema,
   "presence.status": PresenceStatusPayloadSchema
 } as const;

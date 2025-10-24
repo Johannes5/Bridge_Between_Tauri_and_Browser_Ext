@@ -12,6 +12,8 @@ use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
+mod focus;
+
 fn detect_browser() -> String {
     // Try environment variable first
     if let Ok(browser) = env::var("BRIDGE_BROWSER") {
@@ -175,7 +177,20 @@ async fn main() -> Result<()> {
         loop {
             match read_native_message()? {
                 Some(msg) => {
+                    let handled = match handle_control_message(&msg) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            eprintln!("[sidecar] control message error: {err:#}");
+                            false
+                        }
+                    };
+
                     hub_for_stdin.broadcast(&msg);
+
+                    if handled {
+                        continue;
+                    }
+
                     if to_app_tx_for_stdin.blocking_send(msg).is_err() {
                         break;
                     }
@@ -334,6 +349,37 @@ async fn bridge_to_app(
             }
         }
     }
+}
+
+fn handle_control_message(message: &str) -> Result<bool> {
+    let value: serde_json::Value = match serde_json::from_str(message) {
+        Ok(val) => val,
+        Err(_) => return Ok(false),
+    };
+
+    let Some(message_type) = value.get("type").and_then(|v| v.as_str()) else {
+        return Ok(false);
+    };
+
+    if message_type != "focus.window" {
+        return Ok(false);
+    }
+
+    if let Some(payload_value) = value.get("payload") {
+        match serde_json::from_value::<focus::FocusWindowPayload>(payload_value.clone()) {
+            Ok(payload) => {
+                println!("[sidecar] focus.window request: {payload:?}");
+                if let Err(err) = focus::focus_window(&payload) {
+                    eprintln!("[sidecar] focus.window failed: {err:#}");
+                }
+            }
+            Err(err) => {
+                eprintln!("[sidecar] focus.window payload parse error: {err:#}");
+            }
+        }
+    }
+
+    Ok(true)
 }
 
 async fn spawn_debug_ws(port: u16, hub: DebugHub, to_app_tx: mpsc::Sender<String>) -> Result<()> {
