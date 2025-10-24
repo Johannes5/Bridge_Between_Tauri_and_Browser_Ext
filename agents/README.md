@@ -1,23 +1,11 @@
 Agents Workspace
 ================
 
-This folder organizes design docs, conversations, progress notes, and bug reports for the Agents project. It is intentionally markdown‑first so it works well in any editor and can evolve alongside the code.
-
 Contents
 --------
 - `agents/specs` — Specifications and design docs
-  - `agent_overview.md` — High‑level overview and goals
-  - `agent_action_spec.md` — Action/Tooling agent spec
-  - `agent_search_spec.md` — Search/retrieval agent spec
-  - `gpt5_conversation_1.md` — Conversation transcript (exploration)
-  - `gpt5_conversation_2.md` — Conversation transcript (iteration)
-- `agents/bugs` — Known issues and investigations
-  - `action_agent_bugs.md`
-  - `search_agent_bugs.md`
-- `agents/progress` — Milestones, weekly updates, and notes
-  - `milestone_october.md`
-  - `search_agent_progress.md`
-
+ - `agents/progress` — Milestones, weekly updates, and notes
+ 
 How We Work
 -----------
 - Keep documents short, scoped, and actionable. Prefer linking to details rather than repeating them.
@@ -28,11 +16,11 @@ How We Work
 
 Suggested Workflow
 ------------------
-1. Start with `specs/agent_overview.md` to outline goals, constraints, and key components.
-2. Add or refine specs (e.g., `agent_action_spec.md`, `agent_search_spec.md`).
-3. Capture exploratory dialogues in the `gpt5_conversation_*.md` files to preserve reasoning and alternatives.
-4. Track open problems in `bugs/*` and link back to the relevant spec sections.
-5. Note milestones and status in `progress/*` with clear acceptance criteria.
+1. Start with `specs/agent_overview.md` to outline goals, constraints, and key components. assuming it exists
+2. Add or refine specs
+3. Note milestones and status in `progress/*` with clear acceptance criteria.
+
+as the project progresses, dont just write to progress notes, but refine documenation. which is outside the agents folder
 
 Spec Template (Copy/Paste)
 --------------------------
