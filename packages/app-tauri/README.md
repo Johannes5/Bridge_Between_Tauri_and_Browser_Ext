@@ -1,209 +1,68 @@
-# MapMap Test App
+# Bridge Desktop App (Tauri)
 
-A minimal Tauri + React environment for testing, reproducing issues, and experimenting with new features/technology.
+The Tauri desktop app (`packages/app-tauri`) is the operator console for the bridge workspace. It renders live browser snapshots from the extension, lets you open or restore tabs, and surfaces bridge logs for debugging.
 
-## Purpose
+## UI Tour
 
-This test app provides a streamlined development environment that reflects the MapMap project structure while being minimal enough to:
+- **Connected Browsers**: Each card represents a live `connectionId` (a native host plus extension pair). The header shows the inferred browser name and last update time.
+- **Tab Grid**: Tab cards display title, URL, favicon, and window metadata. The **Open** button sends a `tabs.openOrFocus` message through the sidecar.
+- **Saved Tab Collections**: Restore saved sets in `suspend` (lazy) or `eager` mode. Both paths reuse the same routing heuristics as single-tab opens.
+- **Bridge Log**: A rolling list of envelopes with short summaries. Useful to verify bridge traffic while testing.
 
-- Quickly test Tauri features and APIs
-- Reproduce and isolate bugs
-- Experiment with new technologies before integrating them
-- Validate fixes in a controlled environment
+## Connection Routing and Fallbacks
 
-## Structure
+When the app sends a tab action it includes a `connectionId`. The routing logic:
 
-```
-app-tauri/
-├── src/                    # React frontend source
-│   ├── index.tsx          # Main React app
-│   └── index.css          # Styles
-├── src-tauri/             # Tauri backend
-│   ├── src/
-│   │   └── lib.rs        # Rust backend code
-│   ├── Cargo.toml        # Rust dependencies
-│   └── tauri.conf.json   # Tauri configuration
-├── public/
-│   └── index.html        # HTML template
-├── package.json          # Node dependencies
-├── rspack.config.js      # Build configuration
-└── tsconfig.json         # TypeScript configuration
+1. Sends to the requested `connectionId`.
+2. If the ID is stale, looks for another connection with the same `browser` label.
+3. Falls back to the first active connection when no better candidate exists.
+
+Watch the Tauri devtools console for lines such as:
+
+```text
+[tabs.openOrFocus] Routing to connection: 19a174a1afc-b312
+[tabs.openOrFocus] Available connections: ["19a174a1afc-b312","19a174a37f2-b47c"]
+[tabs.openOrFocus] Target connection not found: 19a173ff93b-918d
 ```
 
-## Getting Started
+If you continue to see "Target connection not found", confirm that the extension service worker has reconnected (see [`../ext-plasmo/docs/extension.md`](../ext-plasmo/docs/extension.md)).
 
-### Prerequisites
+## Development Workflow
 
-- Node.js 18+ and pnpm
-- Rust (for Tauri)
-- Platform-specific Tauri prerequisites (see [Tauri docs](https://tauri.app/v1/guides/getting-started/prerequisites))
+```powershell
+# Terminal 1 - extension service worker with hot reload
+pnpm --filter ./packages/ext-plasmo dev
 
-### Installation
-
-```bash
-cd app-tauri
-pnpm install
+# Terminal 2 - desktop app with devtools
+pnpm --filter ./packages/app-tauri tauri dev -- --devtools
 ```
 
-### Development
+Key notes:
 
-Start the development server with hot reload:
+- The sidecar hosts the WebSocket on `ws://127.0.0.1:17342`; ensure Chrome launches the native host before opening the app.
+- The front-end stack is React + Rspack. Shared types are imported from `@bridge/shared-proto`.
+- Before sending `tabs.openOrFocus`, the app minimizes itself via `getCurrentWindow().minimize()` to reduce flicker.
 
-```bash
-pnpm tauri:dev
+## Production Build
+
+```powershell
+pnpm --filter @bridge/shared-proto build
+pnpm --filter ./packages/app-tauri build
+pnpm --filter ./packages/app-tauri tauri build
 ```
 
-This will:
-1. Start the React dev server on port 3000
-2. Launch the Tauri app
-3. Enable hot reload for both frontend and backend
+Ensure `packages/sidecar/target/release/bridge-sidecar.exe` is fresh before packaging; the installer references the native host path from the manifest.
 
-### Building
+## Debugging and Diagnostics
 
-Build for production:
+- **Open DevTools**: While `tauri dev` runs, press `Ctrl+Shift+I` (Windows) or `Cmd+Option+I` (macOS), or launch with `--devtools` as shown above.
+- **Bridge logs**: Look for `[bridge-app] ...` in the console. Routing, parse errors, and snapshot updates are logged there.
+- **Presence widget**: The UI shows the latest `presence.status` states (`app`, `extension`, `sidecar`). If `sidecar` reads `offline`, reload the extension.
+- **Manual refresh**: Use the **Refresh tabs** button or send `presence.query` / `tabs.list.request` envelopes from the console to retrigger snapshots.
 
-```bash
-pnpm build
-pnpm tauri:build
-```
+## Related Documentation
 
-## What's Included
-
-### Frontend
-
-- **React 18**: Modern React with hooks
-- **TypeScript**: Type safety
-- **Rspack**: Fast bundler (compatible with Webpack)
-- **Minimal CSS**: Basic styling system similar to MapMap
-
-### Backend (Rust/Tauri)
-
-- **Tauri Core**: Window management, IPC
-- **Global Shortcuts**: Test keyboard shortcuts
-- **Clipboard**: Clipboard operations
-- **File System**: File operations
-- **Dialog**: Native dialogs
-- **Shell**: Execute commands
-
-### Sample Commands
-
-The app includes sample Tauri commands you can use as templates:
-
-- `greet(name: String)` - Simple string parameter example
-- `test_command()` - Returns structured data example
-
-## Usage Examples
-
-### Testing New Tauri Features
-
-1. Add your test code to `src-tauri/src/lib.rs`
-2. Create a new Tauri command:
-
-```rust
-#[tauri::command]
-async fn my_test_command(param: String) -> Result<String, String> {
-    println!("Testing: {}", param);
-    Ok("Success".to_string())
-}
-```
-
-3. Register it in the `invoke_handler`:
-
-```rust
-.invoke_handler(tauri::generate_handler![
-    greet,
-    test_command,
-    my_test_command, // Add here
-])
-```
-
-4. Call from React:
-
-```typescript
-import { invoke } from '@tauri-apps/api/core';
-
-const result = await invoke<string>('my_test_command', { param: 'test' });
-```
-
-### Reproducing Issues
-
-1. Minimize the issue to the smallest reproducible case
-2. Implement it in this test app
-3. Share the code or create a branch for the reproduction
-4. Test fixes in isolation before applying to main project
-
-### Testing Global Shortcuts
-
-The global shortcut plugin is already configured. Add shortcuts in `lib.rs`:
-
-```rust
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
-
-let shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::KeyA);
-app.global_shortcut().register(shortcut)?;
-```
-
-## Key Differences from Main App
-
-This test app is intentionally minimal compared to the main MapMap client:
-
-- No routing (single page)
-- No state management (local state only)
-- No complex dependencies (Plasmic, Sentry, etc.)
-- Simplified build configuration
-- Basic styling only
-
-These simplifications make it easier to isolate and test specific functionality.
-
-## Tips
-
-1. **Keep it Simple**: Don't add unnecessary dependencies
-2. **Test in Isolation**: One feature at a time
-3. **Document Reproductions**: Add comments explaining what you're testing
-4. **Clean Up**: Remove test code after issues are resolved
-5. **Version Control**: Use git branches for different test scenarios
-
-## Troubleshooting
-
-### Tauri fails to start
-
-Check that you have all Tauri prerequisites installed:
-- Windows: Microsoft Visual Studio C++ build tools
-- macOS: Xcode Command Line Tools
-- Linux: Build essentials and webkit2gtk
-
-### Hot reload not working
-
-1. Ensure dev server is running on port 3000
-2. Check `tauri.conf.json` has correct `devUrl`
-3. Try `pnpm tauri:dev` again
-
-### Rust compilation errors
-
-1. Update Rust: `rustup update`
-2. Check `Cargo.toml` dependency versions
-3. Run `cargo clean` in `src-tauri/` directory
-
-## Quick Links
-
-- **[INDEX.md](./INDEX.md)** - Documentation navigation hub
-- **[QUICK_START.md](./QUICK_START.md)** - Get started in 5 minutes
-- **[EXAMPLES.md](./EXAMPLES.md)** - 50+ code examples
-- **[SUMMARY.md](./SUMMARY.md)** - What was created and why
-
-## Resources
-
-- [Tauri Documentation](https://tauri.app/)
-- [Tauri API Reference](https://tauri.app/v2/api/js/)
-- [Rust Tauri API](https://docs.rs/tauri/latest/tauri/)
-- [MapMap Main Project](../packages/client/)
-
-## Contributing
-
-When using this test app:
-
-1. Document what you're testing in comments
-2. Keep the app minimal and focused
-3. Clean up after reproducing/fixing issues
-4. Share useful test patterns with the team
-
+- Architecture overview: [../../docs/architecture.md](../../docs/architecture.md)
+- Developer setup: [../../docs/dev-setup.md](../../docs/dev-setup.md)
+- Native host internals: [`../sidecar/docs/native-host.md`](../sidecar/docs/native-host.md)
+- Focus troubleshooting: [../../docs/troubleshooting/window-focus.md](../../docs/troubleshooting/window-focus.md)

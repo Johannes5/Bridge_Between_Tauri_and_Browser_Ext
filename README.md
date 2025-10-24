@@ -1,52 +1,69 @@
 # Bridge Workspace
 
-This workspace hosts the desktop bridge app (Tauri), the companion browser extension (Plasmo), a shared protocol package, and the Rust sidecar that implements the WebExtension Native Messaging host.
+Bridge Workspace is a three-part system—Tauri desktop app, Chromium extension, and Rust sidecar—that keeps browser state in sync with the desktop UI. Start here if you need to build, run, or troubleshoot the bridge on Windows.
 
-## Layout
-- `packages/app-tauri` - Tauri 2 desktop shell (Rust backend + React UI) that visualises bridge traffic and issues commands.
-- `packages/ext-plasmo` - MV3 extension built with Plasmo that streams active tab data and executes actions requested by the desktop app.
-- `packages/shared-proto` - TypeScript + Zod schemas for every envelope and payload that crosses the bridge.
-- `packages/sidecar` - Rust binary that speaks the Native Messaging protocol and forwards traffic to the app over a loopback WebSocket.
-- `tools/` - Playwright bridge tester and MCP server adapters (`bridge-runner`, `rust-cargo`, `system-proc`).
+## Packages at a Glance
+| Package | Description | Filter name |
+| --- | --- | --- |
+| `packages/app-tauri` | Desktop shell (React + Tauri) that visualises browser tabs and issues commands | `mapmap-test-app` |
+| `packages/ext-plasmo` | MV3 service worker that streams tab state and executes actions | `ext-plasmo` |
+| `packages/shared-proto` | Shared TypeScript schemas (`zod`) for every envelope | `@bridge/shared-proto` |
+| `packages/sidecar` | Rust native host that bridges Chrome native messaging to the desktop app | `@bridge/sidecar` |
 
-## Quick Commands
-Run these from the workspace root with `pnpm`:
-- `pnpm setup` - Install dependencies for every Node workspace.
-- `pnpm build:proto` - Emit `@bridge/shared-proto/dist` before building other packages.
-- `pnpm dev:app` / `pnpm dev:ext` - Start the Tauri shell or the Plasmo extension in watch mode.
-- `pnpm test:bridge` - Launch the automated Playwright subagent to exercise the bridge end-to-end.
+Additional playbooks and debugging notes now live under [`docs/playbooks/`](docs/playbooks) (moved from the repo root).
 
-## Bridge Flow (Sidecar Enabled)
+## Core Commands (run from repo root)
+```powershell
+# Dependency install
+pnpm setup
+
+# Build shared schemas first
+pnpm --filter @bridge/shared-proto build
+
+# Build each runtime (directory filters also work, e.g. `--filter ./packages/app-tauri`)
+pnpm --filter ext-plasmo build
+pnpm --filter mapmap-test-app build        # same as `pnpm --filter ./packages/app-tauri build`
+pnpm --filter mapmap-test-app tauri build  # Native shell (optional)
+pnpm --filter @bridge/sidecar build        # Cargo release build
+
+# Development servers
+pnpm --filter ext-plasmo dev
+pnpm --filter mapmap-test-app tauri dev -- --devtools
+# or use the root shortcut script:
+pnpm dev:app
 ```
-Extension (tabs + commands)
-      <-> Native Messaging (stdin/stdout)
-Rust sidecar (packages/sidecar)
-      <-> ws://127.0.0.1:17342
-Tauri app (packages/app-tauri)
-```
-Optional debug mirror: `ws://127.0.0.1:17888` (enabled in debug builds or via `BRIDGE_DEBUG_WS=1` / `SIDE_CAR_DEBUG_WS=1`).
 
-## Development Checklist
-1. `pnpm setup && pnpm build:proto`
-2. `cargo build --release` inside `packages/sidecar` (or `pnpm --filter @bridge/sidecar build`)
-3. `pnpm dev:app` and `pnpm dev:ext` in separate terminals.
-4. Install the extension unpacked and register the sidecar manifest for your browser (templates live in `packages/sidecar/manifests/`).
-5. Verify with `pnpm test:bridge` or by using the UI under Bridge Dev Console.
+## Routine Flows
+| Scenario | Steps |
+| --- | --- |
+| Fresh dev environment | 1) `pnpm setup` 2) `pnpm --filter @bridge/shared-proto build` 3) Run the extension and Tauri dev servers in separate terminals |
+| Update the sidecar binary | 1) **Close every browser using the extension** 2) `taskkill /IM bridge-sidecar.exe /F` until “process not found” 3) `pnpm --filter @bridge/sidecar build` 4) Copy `packages/sidecar/manifests/com.bridge.app.json` into each browser’s `NativeMessagingHosts` folder 5) Restart browsers and reload the extension |
+| Quick rebuild loop without closing browsers | 1) Set `$env:CARGO_TARGET_DIR="packages/sidecar/target-temp"` 2) `cargo build --manifest-path packages/sidecar/Cargo.toml --release` 3) Copy the new `bridge-sidecar.exe` into `packages/sidecar/target/release` after Chrome disconnects 4) Reload the extension |
+| Reset everything | 1) `pnpm --filter @bridge/shared-proto build` 2) `pnpm --filter ext-plasmo build` 3) `pnpm --filter mapmap-test-app build` 4) Rebuild the sidecar as above 5) Reload the extension and restart the Tauri app |
 
-## Native Host Manifests
-Render the templates in `packages/sidecar/manifests/` when packaging:
-- Chromium family: copy `chromium.json.tpl` to the per-browser NativeMessagingHosts folder and replace `{{SIDE_CAR_PATH}}` plus the extension IDs.
-- Firefox: do the same with `firefox.json.tpl` and populate `allowed_extensions`.
+### Closing Browsers vs. Killing the Sidecar
+- **Close browsers** whenever you plan to replace `bridge-sidecar.exe` directly; Chromium locks the executable while the native host is connected.
+- To terminate a stuck host without closing Chrome completely, run:  
+  ```powershell
+  taskkill /IM bridge-sidecar.exe /F
+  ```
+  Repeat until the process is gone, then rebuild and restart the extension to let Chrome spawn a fresh host.
 
-## MCP Servers
-`tools/mcp-runner.ts`, `tools/mcp-cargo.ts`, and `tools/mcp-proc.ts` expose:
-- `bridge-runner` - file access, pnpm scripts, arbitrary shell commands, and build orchestration.
-- `rust-cargo` - `cargo` invocations scoped to `packages/sidecar`.
-- `system-proc` - health checks (`checkPort`) and lightweight process inspection (`psgrep`).
-Configure them in `.cursor/mcp.json` as shown in the sample environment.
+## Debugging Checklist
+1. Rebuild artefacts in this order: shared proto → extension → sidecar → app (`pnpm --filter mapmap-test-app build`).
+2. After rebuilding the sidecar, confirm both the Chrome and Comet manifests point at `packages/sidecar/target/release/bridge-sidecar.exe` (see `packages/sidecar/manifests/com.bridge.app.json`).
+3. Reload the extension (`chrome://extensions` → enable Developer Mode → **Reload**) in every browser you test.
+4. Open DevTools in the Tauri app and watch for `[tabs.openOrFocus]` logs to ensure the UI is routing to an active `connectionId`.
+5. Inspect the extension service worker console for `[bridge-ext] Found matching tab` and `focus.window` logs before debugging the Win32 layer.
+6. Capture sidecar stderr via a wrapper (redirect `bridge-sidecar.exe` stderr to a log file) whenever you need to analyse the focus routine (`focus_window_windows payload`, `bring_window_to_front hwnd=...`).
 
-## Agent Guidance
-- Update schemas only through `packages/shared-proto`, then rebuild dependants.
-- Store all bridge-initiated messages behind the new `BridgeState` and `bridge_send` command (`packages/app-tauri/src-tauri/src/lib.rs`).
-- Keep debug transport (`ws://127.0.0.1:17888`) enabled only for development builds or explicit env flags.
-- Any change to the protocol or the bridge should include a matching update to the Playwright tester.
+If the browser window still refuses to foreground, follow the experiments listed in [docs/troubleshooting/window-focus.md](docs/troubleshooting/window-focus.md) and share the captured logs before adjusting Win32 calls.
+
+## Reference Docs
+- Architecture overview: [docs/architecture.md](docs/architecture.md)
+- Windows setup: [docs/dev-setup.md](docs/dev-setup.md)
+- Focus troubleshooting timeline: [docs/troubleshooting/window-focus.md](docs/troubleshooting/window-focus.md)
+- Extension guide: [packages/ext-plasmo/docs/extension.md](packages/ext-plasmo/docs/extension.md)
+- Sidecar internals: [packages/sidecar/docs/native-host.md](packages/sidecar/docs/native-host.md)
+- Desktop app guide: [packages/app-tauri/README.md](packages/app-tauri/README.md)
+- Playbooks & historical notes: [docs/playbooks/](docs/playbooks)
