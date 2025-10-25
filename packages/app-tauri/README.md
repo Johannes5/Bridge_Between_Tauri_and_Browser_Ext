@@ -63,6 +63,6 @@ Ensure `packages/sidecar/target/release/bridge-sidecar.exe` is fresh before pack
 ## Related Documentation
 
 - Architecture overview: [../../docs/architecture.md](../../docs/architecture.md)
-- Developer setup: [../../docs/dev-setup.md](../../docs/dev-setup.md)
+- Developer setup: [../../docs/dev-setup.md](../../docs/windows-dev-setup.md)
 - Native host internals: [`../sidecar/docs/native-host.md`](../sidecar/docs/native-host.md)
 - Focus troubleshooting: [../../docs/troubleshooting/window-focus.md](../../docs/troubleshooting/window-focus.md)

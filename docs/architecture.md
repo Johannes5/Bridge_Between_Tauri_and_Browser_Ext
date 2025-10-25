@@ -82,7 +82,7 @@ HWNDs are cached by `windowId` and recomputed via `EnumWindows` if necessary. De
 
 ## Related Documentation
 
-- Developer setup: [docs/dev-setup.md](./dev-setup.md)
+- Developer setup: [docs/dev-setup.md](windows-dev-setup.md)
 - Focus debugging timeline: [docs/troubleshooting/window-focus.md](./troubleshooting/window-focus.md)
 - Extension details: [`../packages/ext-plasmo/docs/extension.md`](../packages/ext-plasmo/docs/extension.md)
 - Native host internals: [`../packages/sidecar/docs/native-host.md`](../packages/sidecar/docs/native-host.md)

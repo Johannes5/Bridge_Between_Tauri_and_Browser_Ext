@@ -71,6 +71,35 @@ The extension service worker automatically retries `connectNative` if the sideca
 | Chrome profile | `C:\Users\<USER>\AppData\Local\Google\Chrome\User Data\NativeMessagingHosts\com.bridge.app.json` |
 | Comet (Perplexity) profile | `C:\Users\<USER>\AppData\Local\Perplexity\Comet\User Data\NativeMessagingHosts\com.bridge.app.json` |
 
+make sure to have
+
+`{
+"name": "com.bridge.app",
+"description": "Bridge between extension and Tauri app",
+"path": "beginning_of_your_path\\packages\\sidecar\\target\\release\\bridge-sidecar.exe",
+"type": "stdio",
+"allowed_origins": [
+"chrome-extension://id_you_aste_from_extension_details/"
+]
+}`
+
+in the respecitve appdata folders. eg:
+
+`C:\Users\Johannes\AppData\Local\Perplexity\Comet\User Data\NativeMessagingHosts\com.bridge.app.json
+`
+
+to find those folder use win-key + R and enter
+
+`%LOCALAPPDATA%\Google\Chrome`
+or
+`%LOCALAPPDATA%\Perplexity\Comet
+`
+
+use 2 browsers for testing
+I recommend Comet.
+Here is an invitation link: https://pplx.ai/mail9565)
+
+
 After rebuilding the sidecar, overwrite the profile copy so Chrome loads the latest binary path:
 
 ```powershell

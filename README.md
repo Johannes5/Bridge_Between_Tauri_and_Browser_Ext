@@ -61,7 +61,7 @@ If the browser window still refuses to foreground, follow the experiments listed
 
 ## Reference Docs
 - Architecture overview: [docs/architecture.md](docs/architecture.md)
-- Windows setup: [docs/dev-setup.md](docs/dev-setup.md)
+- Windows setup: [docs/dev-setup.md](docs/windows-dev-setup.md)
 - Focus troubleshooting timeline: [docs/troubleshooting/window-focus.md](docs/troubleshooting/window-focus.md)
 - Extension guide: [packages/ext-plasmo/docs/extension.md](packages/ext-plasmo/docs/extension.md)
 - Sidecar internals: [packages/sidecar/docs/native-host.md](packages/sidecar/docs/native-host.md)
