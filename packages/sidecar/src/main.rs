@@ -25,19 +25,23 @@ fn detect_browser() -> String {
     {
         if let Some(parent) = get_parent_process_name() {
             let lower = parent.to_lowercase();
-            if lower.contains("chrome.exe") {
+            if lower.contains("chrome") {
                 return "Chrome".to_string();
-            } else if lower.contains("msedge.exe") {
+            } else if lower.contains("msedge") || lower.contains("edge") {
                 return "Edge".to_string();
-            } else if lower.contains("brave.exe") {
+            } else if lower.contains("brave") {
                 return "Brave".to_string();
-            } else if lower.contains("comet.exe") || lower.contains("perplexity") {
+            } else if lower.contains("comet") || lower.contains("perplexity") {
                 return "Comet".to_string();
+            } else if lower.contains("firefox") {
+                return "Firefox".to_string();
             }
+            eprintln!("[sidecar] Unrecognized parent process: {}", parent);
             return parent;
         }
     }
     
+    eprintln!("[sidecar] Browser detection failed");
     "Unknown".to_string()
 }
 
@@ -46,8 +50,47 @@ fn get_parent_process_name() -> Option<String> {
     use std::process::Command;
     
     let current_pid = std::process::id();
+    eprintln!("[sidecar] Detecting browser from PID: {}", current_pid);
     
-    // Get all ancestor processes (traverse up the tree)
+    // Use PowerShell to walk process tree (more reliable than wmic)
+    let script = format!(
+        "$currentPid = {}; $depth = 0; while ($depth -lt 5) {{ \
+         $proc = Get-Process -Id $currentPid -ErrorAction SilentlyContinue; \
+         if (!$proc) {{ break }}; \
+         $name = $proc.ProcessName; \
+         Write-Host \"Depth $depth : $name\"; \
+         if ($name -match 'chrome|msedge|brave|comet|firefox') {{ Write-Host \"FOUND:$name\"; break }}; \
+         $parent = Get-CimInstance Win32_Process -Filter \"ProcessId = $currentPid\" | Select-Object -ExpandProperty ParentProcessId; \
+         if (!$parent) {{ break }}; \
+         $currentPid = $parent; $depth++ \
+         }}",
+        current_pid
+    );
+    
+    let output = Command::new("powershell")
+        .args(&["-NoProfile", "-Command", &script])
+        .output()
+        .ok()?;
+    
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        eprintln!("[sidecar] PowerShell output:\n{}", stdout);
+        
+        // Look for FOUND: marker
+        for line in stdout.lines() {
+            if line.starts_with("FOUND:") {
+                let name = line.strip_prefix("FOUND:").unwrap_or("").trim();
+                if !name.is_empty() {
+                    eprintln!("[sidecar] Found browser via PowerShell: {}", name);
+                    return Some(format!("{}.exe", name));
+                }
+            }
+        }
+    }
+    
+    eprintln!("[sidecar] PowerShell detection failed, trying wmic");
+    
+    // Fallback to wmic
     let mut check_pid = current_pid;
     let mut depth = 0;
     
@@ -81,6 +124,8 @@ fn get_parent_process_name() -> Option<String> {
             .parse()
             .ok()?;
         
+        eprintln!("[sidecar] Depth {}: PID {} -> Name: {}, Parent PID: {}", depth, check_pid, name, parent_pid);
+        
         // Check if this is a browser process
         let lower = name.to_lowercase();
         if lower.contains("chrome.exe") 
@@ -88,6 +133,7 @@ fn get_parent_process_name() -> Option<String> {
             || lower.contains("brave.exe") 
             || lower.contains("comet.exe")
             || lower.contains("firefox.exe") {
+            eprintln!("[sidecar] Found browser: {}", name);
             return Some(name);
         }
         
@@ -95,6 +141,7 @@ fn get_parent_process_name() -> Option<String> {
         if lower == "cmd.exe" 
             || lower == "conhost.exe" 
             || lower.contains("bridge-sidecar") {
+            eprintln!("[sidecar] Skipping intermediate process: {}", name);
             check_pid = parent_pid;
             depth += 1;
             continue;

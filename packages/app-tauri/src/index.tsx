@@ -165,10 +165,16 @@ const App: React.FC = () => {
   );
 
   React.useEffect(() => {
-    const subscription = listen<string>("bridge://incoming", (event) => {
-      const raw = event.payload;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      console.log("[React] Setting up bridge://incoming listener...");
       try {
-        const envelope = EnvelopeSchema.parse(JSON.parse(raw));
+        unlisten = await listen<string>("bridge://incoming", (event) => {
+          console.log("[React] Received event:", event.payload.substring(0, 100));
+          const raw = event.payload;
+        try {
+          const envelope = EnvelopeSchema.parse(JSON.parse(raw));
         pushLog({
           at: Date.now(),
           type: envelope.type,
@@ -179,10 +185,33 @@ const App: React.FC = () => {
           case "tabs.list": {
             const payload = TabsListPayloadSchema.parse(envelope.payload);
             const connectionId = payload.connectionId;
-            const browser = payload.browser;
-            if (connectionId && browser) {
+            const browser = payload.browser || "Unknown";
+            const existingConnections = Array.from(browserTabs.keys());
+            console.log(`[tabs.list] received - connectionId: ${connectionId}, browser: ${browser}, windowId: ${payload.windowId}, existing: [${existingConnections.join(", ")}]`);
+            
+            if (connectionId) {
               setBrowserTabs((prev) => {
                 const updated = new Map(prev);
+                
+                // Find and remove old connections with matching windowId (same browser window, new connection)
+                let replacedCount = 0;
+                for (const [oldId, data] of prev) {
+                  if (oldId !== connectionId && data.payload.windowId === payload.windowId) {
+                    updated.delete(oldId);
+                    console.log(`[tabs.list] Removing stale connection: ${oldId} (same windowId: ${payload.windowId})`);
+                    pushLog({ 
+                      at: Date.now(), 
+                      type: "connection-replaced", 
+                      summary: `WindowId ${payload.windowId}: ${oldId} → ${connectionId}` 
+                    });
+                    replacedCount++;
+                  }
+                }
+                
+                if (replacedCount > 0) {
+                  console.log(`[tabs.list] Cleaned up ${replacedCount} stale connection(s) for windowId ${payload.windowId}`);
+                }
+                
                 updated.set(connectionId, {
                   browser,
                   connectionId,
@@ -191,6 +220,8 @@ const App: React.FC = () => {
                 });
                 return updated;
               });
+            } else {
+              console.warn(`[tabs.list] Missing connectionId - connectionId: ${connectionId}, browser: ${browser}`);
             }
             break;
           }
@@ -238,13 +269,18 @@ const App: React.FC = () => {
         const message = err instanceof Error ? err.message : String(err);
         console.warn("[bridge-app] failed to parse envelope", message, raw);
         pushLog({ at: Date.now(), type: "parse-error", summary: message });
+        }
+        });
+        console.log("[React] Listener setup complete");
+      } catch (err) {
+        console.error("[React] Failed to setup listener:", err);
       }
-    });
+    })().catch((err) => console.error("[bridge-app] failed to setup listener", err));
 
     return () => {
-      subscription
-        .then((unlisten) => unlisten())
-        .catch((err) => console.error("[bridge-app] failed to clean listener", err));
+      if (unlisten) {
+        unlisten();
+      }
     };
   }, [addSavedCollection, pushLog]);
 
@@ -277,11 +313,35 @@ const App: React.FC = () => {
       return;
     }
 
-    let targetConnectionId = options?.connectionId;
-    if (targetConnectionId && !browserTabs.has(targetConnectionId)) {
-      console.warn("[bridge-app] target connection stale; falling back");
-      targetConnectionId = getDefaultConnectionId();
+    // Find connection by windowId to handle reconnections
+    let targetConnectionId: string | undefined;
+    
+    console.log("[bridge-app] handleOpenTab called - CODE VERSION 2.0");
+    
+    if (tab.windowId) {
+      // Find the current connection for this windowId
+      console.log("[bridge-app] Looking up connection by windowId:", tab.windowId, "Available:", Array.from(browserTabs.keys()));
+      for (const [connId, data] of browserTabs) {
+        if (data.payload.windowId === tab.windowId) {
+          targetConnectionId = connId;
+          console.log(`[bridge-app] Found connection for windowId ${tab.windowId}: ${connId}`);
+          break;
+        }
+      }
+      if (!targetConnectionId) {
+        console.warn(`[bridge-app] No connection found for windowId ${tab.windowId}`);
+      }
     }
+    
+    // Fallback to provided connectionId if no windowId match
+    if (!targetConnectionId) {
+      targetConnectionId = options?.connectionId;
+      if (targetConnectionId && !browserTabs.has(targetConnectionId)) {
+        console.warn("[bridge-app] target connection stale; falling back");
+        targetConnectionId = getDefaultConnectionId();
+      }
+    }
+    
     if (!targetConnectionId) {
       targetConnectionId = getDefaultConnectionId();
       if (!targetConnectionId) {
@@ -300,15 +360,19 @@ const App: React.FC = () => {
       connectionId: targetConnectionId
     };
 
-    console.log("[bridge-app] Sending tabs.openOrFocus:", payload);
+    console.log("[bridge-app] Sending tabs.openOrFocus with connectionId:", targetConnectionId, "Full payload:", payload);
     
     await focusBrowserWindow();
-    await sendEnvelope({
+    
+    const envelope = {
       v: 1,
       id: randomId(),
       type: "tabs.openOrFocus",
       payload: TabsOpenOrFocusPayloadSchema.parse(payload)
-    });
+    };
+    
+    console.log("[bridge-app] Full envelope being sent:", JSON.stringify(envelope));
+    await sendEnvelope(envelope);
   };
 
   const handleRequestTabs = async () => {

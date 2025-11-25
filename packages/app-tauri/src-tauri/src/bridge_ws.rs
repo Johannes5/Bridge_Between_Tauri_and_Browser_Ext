@@ -102,42 +102,49 @@ async fn run_sidecar_listener(
                 eprintln!("[app] Received WebSocket message: {}", &txt[..txt.len().min(200)]);
                 
                 // Try to extract connection metadata from presence messages
-                if connection_id.is_none() {
-                  eprintln!("[app] Attempting to extract connection metadata");
-                  if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
-                    eprintln!("[app] Parsed envelope, type: {:?}", envelope.get("type"));
-                    if envelope.get("type").and_then(|t| t.as_str()) == Some("presence.status") {
-                      eprintln!("[app] Found presence.status message");
-                      if let Some(payload) = envelope.get("payload") {
-                        eprintln!("[app] Payload: {:?}", payload);
-                        if let Some(conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
-                          connection_id = Some(conn_id.to_string());
-                          browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
-                          
-                          // Register this connection
-                          if let Ok(mut map) = connections_clone.lock() {
-                            map.insert(
-                              conn_id.to_string(),
-                              ConnectionMeta {
-                                id: conn_id.to_string(),
-                                browser: browser.clone(),
-                                sender: to_sidecar_tx.clone(),
-                              },
-                            );
-                            eprintln!("[app] Connection registered: {} ({:?})", conn_id, browser);
+                // Always check for presence.status to handle reconnections
+                if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
+                  if envelope.get("type").and_then(|t| t.as_str()) == Some("presence.status") {
+                    if let Some(payload) = envelope.get("payload") {
+                      if let Some(conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
+                        let new_browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
+                        
+                        // If this is a new connectionId, remove the old one first
+                        if let Some(old_id) = &connection_id {
+                          if old_id != conn_id {
+                            if let Ok(mut map) = connections_clone.lock() {
+                              map.remove(old_id);
+                              eprintln!("[app] Replacing old connection: {} → {}", old_id, conn_id);
+                            }
                           }
-                        } else {
-                          eprintln!("[app] No connectionId in payload");
                         }
-                      } else {
-                        eprintln!("[app] No payload in presence.status");
+                        
+                        // Update to the new connection ID
+                        connection_id = Some(conn_id.to_string());
+                        browser = new_browser.clone();
+                        
+                        // Register this connection
+                        if let Ok(mut map) = connections_clone.lock() {
+                          map.insert(
+                            conn_id.to_string(),
+                            ConnectionMeta {
+                              id: conn_id.to_string(),
+                              browser: new_browser,
+                              sender: to_sidecar_tx.clone(),
+                            },
+                          );
+                          eprintln!("[app] Connection registered: {} ({:?})", conn_id, browser);
+                        }
                       }
                     }
-                  } else {
-                    eprintln!("[app] Failed to parse message as JSON");
                   }
-                } else {
-                  eprintln!("[app] Connection already registered: {:?}", connection_id);
+                }
+
+                // Log message type for debugging
+                if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
+                  if let Some(msg_type) = envelope.get("type").and_then(|t| t.as_str()) {
+                    eprintln!("[app] Forwarding message type: {}", msg_type);
+                  }
                 }
 
                 hub_clone.broadcast(&txt);
