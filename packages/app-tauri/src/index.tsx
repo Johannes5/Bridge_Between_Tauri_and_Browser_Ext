@@ -116,12 +116,12 @@ const App: React.FC = () => {
 
 
   const focusBrowserWindow = React.useCallback(async () => {
-    try {
-      const windowHandle = getCurrentWindow();
-      await windowHandle.minimize();
-    } catch (err) {
-      console.warn("[bridge-app] failed to minimize window", err);
-    }
+    // try {
+    //   const windowHandle = getCurrentWindow();
+    //   await windowHandle.minimize();
+    // } catch (err) {
+    //   console.warn("[bridge-app] failed to minimize window", err);
+    // }
   }, []);
 
   const addSavedCollection = React.useCallback(
