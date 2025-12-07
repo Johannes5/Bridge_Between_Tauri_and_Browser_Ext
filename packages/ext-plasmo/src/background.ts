@@ -16,6 +16,7 @@ let nativePort: chrome.runtime.Port | null = null;
 let reconnectTimer: number | undefined;
 let connectionId: string | null = null;
 let browser: string | null = null;
+let isConnectionReady = false;
 
 const randomId = (): string => {
   const globalCrypto = globalThis.crypto;
@@ -111,11 +112,11 @@ const connectNative = () => {
   nativePort.onMessage.addListener(onFromNative);
   nativePort.onDisconnect.addListener(() => {
     nativePort = null;
+    isConnectionReady = false;
     scheduleReconnect();
   });
 
-  // Don't send presence - let the sidecar handle that with proper metadata
-  void sendCurrentWindowTabs("connect");
+  // Don't send snapshot yet - wait for presence.status with connection metadata
 };
 
 const postToNative = (message: unknown) => {
@@ -137,9 +138,16 @@ const onFromNative = async (raw: unknown) => {
         // Extract connection metadata from presence messages
         const status = PresenceStatusPayloadSchema.safeParse(payload);
         if (status.success && status.data.connectionId && status.data.browser) {
+          const wasNotReady = !isConnectionReady;
           connectionId = status.data.connectionId;
           browser = status.data.browser;
+          isConnectionReady = true;
           console.log(`[bridge-ext] Connection established: ${browser} (${connectionId})`);
+          
+          // Send initial snapshot now that we have connection metadata
+          if (wasNotReady) {
+            void sendCurrentWindowTabs("initial-after-connect");
+          }
         }
         break;
       }
@@ -629,12 +637,12 @@ if (DEV) {
 
 chrome.runtime.onStartup.addListener(() => {
   connectNative();
-  void sendCurrentWindowTabs("startup");
+  // Initial snapshot will be sent after presence.status is received
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   connectNative();
-  void sendCurrentWindowTabs("installed");
+  // Initial snapshot will be sent after presence.status is received
 });
 
 chrome.action.onClicked.addListener(() => {
