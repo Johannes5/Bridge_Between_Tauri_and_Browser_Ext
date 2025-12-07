@@ -309,6 +309,7 @@ const App: React.FC = () => {
       type: "tabs.openOrFocus",
       payload: TabsOpenOrFocusPayloadSchema.parse(payload)
     });
+    handleRequestTabs()
   };
 
   const handleRequestTabs = async () => {
@@ -337,6 +338,7 @@ const App: React.FC = () => {
         connectionId: targetConnectionId
       }
     });
+    handleRequestTabs()
   };
 
   const handleSaveCurrentTabs = React.useCallback((snapshot: BrowserTabSnapshot) => {
