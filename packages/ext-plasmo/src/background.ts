@@ -58,6 +58,34 @@ const serializeTab = (tab: chrome.tabs.Tab) => ({
   pinned: tab.pinned ?? false
 });
 
+const isValidUrl = (url: string): boolean => {
+  if (!url || typeof url !== "string" || url.length === 0) {
+    return false;
+  }
+  
+  // Block dangerous protocols
+  const dangerousProtocols = ["javascript:", "data:", "vbscript:", "file:"];
+  const lowerUrl = url.toLowerCase();
+  if (dangerousProtocols.some(protocol => lowerUrl.startsWith(protocol))) {
+    console.warn("[bridge-ext] Blocked dangerous URL protocol:", url);
+    return false;
+  }
+  
+  // Allow chrome:// and chrome-extension:// for internal pages
+  if (lowerUrl.startsWith("chrome://") || lowerUrl.startsWith("chrome-extension://")) {
+    return true;
+  }
+  
+  // Validate http/https URLs
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    console.warn("[bridge-ext] Invalid URL format:", url);
+    return false;
+  }
+};
+
 const fetchTabsForWindow = async (
   windowId: number,
   prepopulated?: chrome.tabs.Tab[] | null
@@ -280,8 +308,12 @@ const restoreTabs = async (options: {
     return;
   }
 
-  const urls = options.urls.filter((u) => typeof u === "string" && u.length > 0);
+  const urls = options.urls
+    .filter((u) => typeof u === "string" && u.length > 0)
+    .filter(isValidUrl);
+  
   if (urls.length === 0) {
+    console.warn("[bridge-ext] No valid URLs to restore");
     return;
   }
 
