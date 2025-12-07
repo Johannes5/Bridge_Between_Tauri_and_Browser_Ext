@@ -241,6 +241,9 @@ async fn bridge_to_app(
     connection_id: String,
     browser: String,
 ) -> Result<()> {
+    let mut retry_delay = Duration::from_secs(1);
+    let max_retry_delay = Duration::from_secs(30);
+    
     loop {
         match connect_async(&app_ws).await {
             Ok((ws_stream, _)) => {
@@ -260,6 +263,9 @@ async fn bridge_to_app(
                 let _ = to_extension_tx.send(presence_msg.clone()).await;
 
                 let (mut write, mut read) = ws_stream.split();
+                
+                // Reset retry delay on successful connection
+                retry_delay = Duration::from_secs(1);
                 
                 // Send presence to the Tauri app immediately after connection
                 if write.send(Message::Text(presence_msg)).await.is_err() {
@@ -344,8 +350,10 @@ async fn bridge_to_app(
                 }
             }
             Err(err) => {
-                eprintln!("[sidecar] unable to connect to app ws {app_ws}: {err:#}");
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                eprintln!("[sidecar] unable to connect to app ws {app_ws}: {err:#}, retrying in {:?}", retry_delay);
+                tokio::time::sleep(retry_delay).await;
+                // Exponential backoff: double the delay up to max
+                retry_delay = (retry_delay * 2).min(max_retry_delay);
             }
         }
     }

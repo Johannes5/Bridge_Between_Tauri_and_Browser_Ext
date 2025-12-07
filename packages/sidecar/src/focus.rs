@@ -103,8 +103,13 @@ fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
         .context("No suitable browser window found")?;
 
     if let Some(window_id) = payload.window_id {
-        if let Ok(mut guard) = WINDOW_CACHE.lock() {
-            guard.insert(window_id, hwnd.0);
+        match WINDOW_CACHE.lock() {
+            Ok(mut guard) => {
+                guard.insert(window_id, hwnd.0);
+            }
+            Err(e) => {
+                eprintln!("[sidecar] Warning: Window cache lock poisoned: {}", e);
+            }
         }
     }
 
@@ -257,7 +262,10 @@ fn get_process_name(pid: u32) -> Option<String> {
 
         let mut buffer = vec![0u16; 260];
         let len = K32GetModuleBaseNameW(handle, None, &mut buffer) as usize;
-        let _ = CloseHandle(handle);
+        
+        if let Err(e) = CloseHandle(handle) {
+            eprintln!("[sidecar] Warning: Failed to close process handle: {:?}", e);
+        }
 
         if len == 0 {
             return None;
