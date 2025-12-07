@@ -13,7 +13,7 @@ const HOST_NAME = "com.bridge.app";
 const DEV = process.env.NODE_ENV !== "production";
 
 let nativePort: chrome.runtime.Port | null = null;
-let reconnectTimer: number | undefined;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let connectionId: string | null = null;
 let browser: string | null = null;
 let isConnectionReady = false;
@@ -339,6 +339,8 @@ const restoreTabs = async (options: {
 
     const pending = suspend ? urls : remaining;
 
+    // Create all tabs first to maintain order and improve performance
+    const createdTabs: Array<{ id: number; index: number }> = [];
     for (const [index, url] of pending.entries()) {
       const tab = await chrome.tabs.create({
         windowId,
@@ -346,15 +348,18 @@ const restoreTabs = async (options: {
         active: !suspend && index === 0 && focused
       });
       if (tab.id != null) {
-        if (suspend) {
-          if (firstTabId == null) {
-            firstTabId = tab.id;
-          }
-          await pauseMediaInTab(tab.id);
-          await scheduleDiscard(tab.id);
-        } else {
-          await pauseMediaInTab(tab.id);
+        createdTabs.push({ id: tab.id, index });
+        if (firstTabId == null) {
+          firstTabId = tab.id;
         }
+      }
+    }
+
+    // Apply media pause and discard operations (don't block on these)
+    for (const { id } of createdTabs) {
+      void pauseMediaInTab(id);
+      if (suspend) {
+        void scheduleDiscard(id);
       }
     }
 
@@ -385,29 +390,29 @@ const restoreTabs = async (options: {
   const last = await chrome.windows.getLastFocused().catch(() => undefined);
   const targetWindowId = last?.id ?? chrome.windows.WINDOW_ID_NONE;
 
+  // Create all tabs first to maintain order and improve performance
   let firstTabId: number | undefined;
+  const createdTabIds: number[] = [];
+  
   for (const [index, url] of urls.entries()) {
     const tab = await chrome.tabs.create(
       targetWindowId !== chrome.windows.WINDOW_ID_NONE
         ? { windowId: targetWindowId, url, active: !suspend && index === 0 && focused }
         : { url, active: !suspend && index === 0 && focused }
     );
-    if (tab.id == null) {
-      continue;
-    }
-    if (index === 0) {
-      firstTabId = tab.id;
-      if (suspend) {
-          await pauseMediaInTab(tab.id);
-          await scheduleDiscard(tab.id);
-      } else if (focused) {
-        await pauseMediaInTab(tab.id);
+    if (tab.id != null) {
+      createdTabIds.push(tab.id);
+      if (index === 0) {
+        firstTabId = tab.id;
       }
-    } else if (suspend) {
-      await pauseMediaInTab(tab.id);
-      await scheduleDiscard(tab.id);
-    } else {
-      await pauseMediaInTab(tab.id);
+    }
+  }
+
+  // Apply media pause and discard operations after all tabs are created
+  for (const tabId of createdTabIds) {
+    void pauseMediaInTab(tabId);
+    if (suspend) {
+      void scheduleDiscard(tabId);
     }
   }
 
