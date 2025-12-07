@@ -115,16 +115,21 @@ async fn run_sidecar_listener(
                           browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
                           
                           // Register this connection
-                          if let Ok(mut map) = connections_clone.lock() {
-                            map.insert(
-                              conn_id.to_string(),
-                              ConnectionMeta {
-                                id: conn_id.to_string(),
-                                browser: browser.clone(),
-                                sender: to_sidecar_tx.clone(),
-                              },
-                            );
-                            eprintln!("[app] Connection registered: {} ({:?})", conn_id, browser);
+                          match connections_clone.lock() {
+                            Ok(mut map) => {
+                              map.insert(
+                                conn_id.to_string(),
+                                ConnectionMeta {
+                                  id: conn_id.to_string(),
+                                  browser: browser.clone(),
+                                  sender: to_sidecar_tx.clone(),
+                                },
+                              );
+                              eprintln!("[app] Connection registered: {} ({:?})", conn_id, browser);
+                            }
+                            Err(e) => {
+                              eprintln!("[app] Failed to register connection, lock poisoned: {}", e);
+                            }
                           }
                         } else {
                           eprintln!("[app] No connectionId in payload");
@@ -209,11 +214,7 @@ async fn run_sidecar_listener(
 
       // Clean up connection on disconnect
       if let Some(conn_id) = connection_id {
-        if let Ok(mut map) = connections_clone.lock() {
-          map.remove(&conn_id);
-          eprintln!("[app] Connection removed: {}", conn_id);
-        }
-
+        // Send offline notification BEFORE removing from map to avoid routing issues
         let offline_payload = json!({
           "v": 1,
           "type": "presence.status",
@@ -225,7 +226,20 @@ async fn run_sidecar_listener(
         })
         .to_string();
         hub_clone.broadcast(&offline_payload);
-        let _ = tx_clone.send(offline_payload).await;
+        if let Err(e) = tx_clone.send(offline_payload).await {
+          eprintln!("[app] Failed to send offline notification: {}", e);
+        }
+
+        // Now remove from connection map
+        match connections_clone.lock() {
+          Ok(mut map) => {
+            map.remove(&conn_id);
+            eprintln!("[app] Connection removed: {}", conn_id);
+          }
+          Err(e) => {
+            eprintln!("[app] Failed to remove connection, lock poisoned: {}", e);
+          }
+        }
       }
     });
   }
@@ -263,7 +277,13 @@ impl BridgeHandle {
 
     // Clone senders before await to avoid holding the lock
     let senders: Vec<mpsc::Sender<String>> = {
-      let connections = self.connections.lock().unwrap();
+      let connections = match self.connections.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+          eprintln!("[app] Failed to acquire connections lock: {}", e);
+          return Ok(()); // Return early, message won't be routed
+        }
+      };
       
       if let Some(ref target_id) = target_connection_id {
         eprintln!("[app] [{}] Routing to connection: {}", msg_type, target_id);
@@ -286,7 +306,9 @@ impl BridgeHandle {
 
     // Send messages without holding the lock
     for sender in senders {
-      let _ = sender.send(message.clone()).await;
+      if let Err(e) = sender.send(message.clone()).await {
+        eprintln!("[app] Failed to send message to connection: {}", e);
+      }
     }
 
     Ok(())
@@ -339,7 +361,13 @@ async fn run_debug_listener(
                     .and_then(|c| c.as_str())
                     .map(|s| s.to_string());
 
-                  let connections_map = connections_clone.lock().unwrap();
+                  let connections_map = match connections_clone.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                      eprintln!("[app] Debug listener: Failed to acquire lock: {}", e);
+                      continue;
+                    }
+                  };
 
                   if let Some(target_id) = target_connection_id {
                     if let Some(conn) = connections_map.get(&target_id) {
@@ -357,7 +385,9 @@ async fn run_debug_listener(
 
                 // Send without holding the lock
                 for sender in senders {
-                  let _ = sender.send(txt.clone()).await;
+                  if let Err(e) = sender.send(txt.clone()).await {
+                    eprintln!("[app] Debug listener: Failed to send message: {}", e);
+                  }
                 }
               }
               Some(Ok(Message::Binary(bin))) => {
