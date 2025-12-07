@@ -325,10 +325,16 @@ const restoreTabs = async (options: {
 
   if (newWindow) {
     const [firstUrl, ...remaining] = urls;
-    const createdWindow = await chrome.windows.create({
-      url: suspend ? undefined : firstUrl ?? "about:blank",
-      focused
-    });
+    let createdWindow: chrome.windows.Window | undefined;
+    try {
+      createdWindow = await chrome.windows.create({
+        url: suspend ? undefined : firstUrl ?? "about:blank",
+        focused
+      });
+    } catch (error) {
+      console.error("Failed to create new window:", error);
+      return; // Abort if window creation fails
+    }
     const windowId = createdWindow.id ?? chrome.windows.WINDOW_ID_NONE;
     const placeholderTabId = createdWindow.tabs?.[0]?.id;
     let firstTabId = suspend ? undefined : placeholderTabId ?? undefined;
@@ -342,16 +348,21 @@ const restoreTabs = async (options: {
     // Create all tabs first to maintain order and improve performance
     const createdTabs: Array<{ id: number; index: number }> = [];
     for (const [index, url] of pending.entries()) {
-      const tab = await chrome.tabs.create({
-        windowId,
-        url,
-        active: !suspend && index === 0 && focused
-      });
-      if (tab.id != null) {
-        createdTabs.push({ id: tab.id, index });
-        if (firstTabId == null) {
-          firstTabId = tab.id;
+      try {
+        const tab = await chrome.tabs.create({
+          windowId,
+          url,
+          active: !suspend && index === 0 && focused
+        });
+        if (tab.id != null) {
+          createdTabs.push({ id: tab.id, index });
+          if (firstTabId == null) {
+            firstTabId = tab.id;
+          }
         }
+      } catch (error) {
+        console.error(`Failed to create tab for URL ${url}:`, error);
+        // Continue with remaining tabs
       }
     }
 
@@ -395,16 +406,21 @@ const restoreTabs = async (options: {
   const createdTabIds: number[] = [];
   
   for (const [index, url] of urls.entries()) {
-    const tab = await chrome.tabs.create(
-      targetWindowId !== chrome.windows.WINDOW_ID_NONE
-        ? { windowId: targetWindowId, url, active: !suspend && index === 0 && focused }
-        : { url, active: !suspend && index === 0 && focused }
-    );
-    if (tab.id != null) {
-      createdTabIds.push(tab.id);
-      if (index === 0) {
-        firstTabId = tab.id;
+    try {
+      const tab = await chrome.tabs.create(
+        targetWindowId !== chrome.windows.WINDOW_ID_NONE
+          ? { windowId: targetWindowId, url, active: !suspend && index === 0 && focused }
+          : { url, active: !suspend && index === 0 && focused }
+      );
+      if (tab.id != null) {
+        createdTabIds.push(tab.id);
+        if (index === 0) {
+          firstTabId = tab.id;
+        }
       }
+    } catch (error) {
+      console.error(`Failed to create tab for URL ${url}:`, error);
+      // Continue with remaining tabs
     }
   }
 
@@ -418,10 +434,18 @@ const restoreTabs = async (options: {
 
   if (!suspend && focused) {
     if (targetWindowId !== chrome.windows.WINDOW_ID_NONE) {
-      await chrome.windows.update(targetWindowId, { focused: true });
+      try {
+        await chrome.windows.update(targetWindowId, { focused: true });
+      } catch (error) {
+        console.error("Failed to focus window:", error);
+      }
     }
     if (firstTabId != null) {
-      await chrome.tabs.update(firstTabId, { active: true });
+      try {
+        await chrome.tabs.update(firstTabId, { active: true });
+      } catch (error) {
+        console.error("Failed to activate tab:", error);
+      }
     }
   }
 
