@@ -690,7 +690,6 @@ const coerceLastAccessed = (tab: chrome.tabs.Tab): number => {
 let updateDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 const subscribeTabEvents = () => {
-  const handler = (reason: string) => () => void sendCurrentWindowTabs(reason);
   
   // Debounce tabs.onUpdated to avoid excessive snapshot spam
   const debouncedUpdateHandler = () => {
@@ -703,7 +702,7 @@ const subscribeTabEvents = () => {
     }, 300); // Wait 300ms after last update before sending snapshot
   };
   
-  chrome.tabs.onCreated.addListener(handler("created"));
+  chrome.tabs.onCreated.addListener(() => void sendCurrentWindowTabs("created"));
   chrome.tabs.onUpdated.addListener((_id, changeInfo, _tab) => {
     // Only send snapshots for meaningful changes (URL, title, or pinned state)
     if (changeInfo.url || changeInfo.title || changeInfo.pinned !== undefined) {
