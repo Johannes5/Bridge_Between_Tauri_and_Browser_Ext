@@ -686,11 +686,13 @@ const coerceLastAccessed = (tab: chrome.tabs.Tab): number => {
   return Math.round(value);
 };
 
+// Global debounce timer that can be cleaned up
+let updateDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
 const subscribeTabEvents = () => {
   const handler = (reason: string) => () => void sendCurrentWindowTabs(reason);
   
   // Debounce tabs.onUpdated to avoid excessive snapshot spam
-  let updateDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   const debouncedUpdateHandler = () => {
     if (updateDebounceTimer) {
       clearTimeout(updateDebounceTimer);
@@ -712,6 +714,18 @@ const subscribeTabEvents = () => {
   chrome.tabs.onAttached.addListener((_id, _info) => void sendCurrentWindowTabs("attached"));
   chrome.tabs.onDetached.addListener((_id, _info) => void sendCurrentWindowTabs("detached"));
   chrome.windows.onFocusChanged.addListener(() => void sendCurrentWindowTabs("focus-changed"));
+};
+
+// Cleanup function for service worker lifecycle
+const cleanup = () => {
+  if (updateDebounceTimer) {
+    clearTimeout(updateDebounceTimer);
+    updateDebounceTimer = undefined;
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  }
 };
 
 if (DEV) {
