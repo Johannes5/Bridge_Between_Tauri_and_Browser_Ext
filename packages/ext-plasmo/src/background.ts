@@ -429,11 +429,17 @@ const discardTab = async (tabId?: number, waitForLoad = false) => {
   const listener = (updatedTabId: number, info: chrome.tabs.TabChangeInfo) => {
     if (updatedTabId === tabId && info.status === "complete") {
       chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(timeoutId);
       void attempt();
     }
   };
 
   chrome.tabs.onUpdated.addListener(listener);
+  
+  // Cleanup listener after 30 seconds if tab never completes loading
+  const timeoutId = setTimeout(() => {
+    chrome.tabs.onUpdated.removeListener(listener);
+  }, 30000);
 };
 
 const pauseMediaInTab = async (tabId?: number) => {
@@ -469,10 +475,16 @@ const pauseMediaInTab = async (tabId?: number) => {
     if (updatedTabId === tabId && info.status === "complete") {
       void inject();
       chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(timeoutId);
     }
   };
 
   chrome.tabs.onUpdated.addListener(listener);
+  
+  // Cleanup listener after 30 seconds if tab never completes loading
+  const timeoutId = setTimeout(() => {
+    chrome.tabs.onUpdated.removeListener(listener);
+  }, 30000);
 };
 
 const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
