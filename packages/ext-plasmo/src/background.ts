@@ -196,7 +196,11 @@ const onFromNative = async (raw: unknown) => {
 
 const sendCurrentWindowTabs = async (reason: string) => {
   try {
-    const focusedWindow = await chrome.windows.getLastFocused({ populate: true });
+    const focusedWindow = await chrome.windows.getLastFocused({ populate: true }).catch(() => undefined);
+    if (!focusedWindow || focusedWindow.id === chrome.windows.WINDOW_ID_NONE) {
+      console.warn("[bridge-ext] No focused window available");
+      return;
+    }
     const { payload } = await resolveWindowSnapshot(focusedWindow);
 
     postToNative({
@@ -216,7 +220,11 @@ const sendCurrentWindowTabs = async (reason: string) => {
 
 const saveAndCloseActiveWindow = async () => {
   try {
-    const focusedWindow = await chrome.windows.getLastFocused({ populate: true });
+    const focusedWindow = await chrome.windows.getLastFocused({ populate: true }).catch(() => undefined);
+    if (!focusedWindow || focusedWindow.id === chrome.windows.WINDOW_ID_NONE) {
+      console.warn("[bridge-ext] No focused window available to save");
+      return;
+    }
     const { windowId, tabs, title, payload } = await resolveWindowSnapshot(focusedWindow);
 
     if (!tabs.length) {
@@ -342,7 +350,7 @@ const restoreTabs = async (options: {
     return;
   }
 
-  const last = await chrome.windows.getLastFocused();
+  const last = await chrome.windows.getLastFocused().catch(() => undefined);
   const targetWindowId = last?.id ?? chrome.windows.WINDOW_ID_NONE;
 
   let firstTabId: number | undefined;
