@@ -259,19 +259,20 @@ async fn bridge_to_app(
                 })
                 .to_string();
 
-                hub.broadcast(&presence_msg);
-                let _ = to_extension_tx.send(presence_msg.clone()).await;
-
                 let (mut write, mut read) = ws_stream.split();
                 
                 // Reset retry delay on successful connection
                 retry_delay = Duration::from_secs(1);
                 
-                // Send presence to the Tauri app immediately after connection
-                if write.send(Message::Text(presence_msg)).await.is_err() {
+                // Send presence to the Tauri app first - only notify extension if this succeeds
+                if write.send(Message::Text(presence_msg.clone())).await.is_err() {
                     eprintln!("[sidecar] Failed to send presence message to app");
                     continue;
                 }
+                
+                // Only after successful send to app, notify extension that connection is ready
+                hub.broadcast(&presence_msg);
+                let _ = to_extension_tx.send(presence_msg).await;
 
                 loop {
                     tokio::select! {
