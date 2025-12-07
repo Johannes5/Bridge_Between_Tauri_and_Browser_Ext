@@ -17,10 +17,10 @@ use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, BringWindowToTop, EnumWindows,
+    AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetCurrentThreadId,
     GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
-    SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
-    SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, ASFW_ANY,
+    SetForegroundWindow, SetWindowPos, ShowWindow, SwitchToThisWindow, HWND_NOTOPMOST, HWND_TOPMOST,
+    SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, ASFW_ANY, AttachThreadInput,
 };
 
 #[derive(Debug, Deserialize)]
@@ -157,26 +157,18 @@ fn expected_process_names(browser: Option<&str>) -> Vec<String> {
 
 #[cfg(target_os = "windows")]
 fn bring_window_to_front(hwnd: HWND) -> Result<()> {
-    eprintln!("[sidecar] bring_window_to_front hwnd=0x{:X}", hwnd.0 as usize);
+    eprintln!("[sidecar] bring_window_to_front hwnd={hwnd:?}");
 
     unsafe {
-        let mut pid = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let browser_thread_id = GetWindowThreadProcessId(hwnd, None);
+        let current_thread_id = GetCurrentThreadId();
 
         let _ = AllowSetForegroundWindow(ASFW_ANY);
-        let _ = AllowSetForegroundWindow(pid);
+
+        let attached = AttachThreadInput(current_thread_id, browser_thread_id, true).as_bool();
 
         let _ = ShowWindow(hwnd, SW_RESTORE);
-
-        let _ = SetWindowPos(
-            hwnd,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE,
-        );
+        let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         let _ = SetWindowPos(
             hwnd,
             HWND_NOTOPMOST,
@@ -186,11 +178,17 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
             0,
             SWP_NOMOVE | SWP_NOSIZE,
         );
+
         let _ = BringWindowToTop(hwnd);
         let _ = SetForegroundWindow(hwnd);
+        SwitchToThisWindow(hwnd, true);
+
+        if attached {
+            let _ = AttachThreadInput(current_thread_id, browser_thread_id, false);
+        }
     }
 
-    eprintln!("[sidecar] bring_window_to_front completed for hwnd=0x{:X}", hwnd.0 as usize);
+    eprintln!("[sidecar] bring_window_to_front completed for hwnd={hwnd:?}");
     Ok(())
 }
 
