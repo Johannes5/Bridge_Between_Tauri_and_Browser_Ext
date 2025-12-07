@@ -335,8 +335,8 @@ const restoreTabs = async (options: {
 
     notifyFocusWindow(
       windowId,
-      urls[0] ?? options.url,
-      urls[0] ?? options.url
+      urls[0],
+      urls[0]
     );
 
     return;
@@ -382,8 +382,8 @@ const restoreTabs = async (options: {
 
   notifyFocusWindow(
     targetWindowId === chrome.windows.WINDOW_ID_NONE ? undefined : targetWindowId,
-    urls[0] ?? options.url,
-    urls[0] ?? options.url
+    urls[0],
+    urls[0]
   );
 };
 
