@@ -1,12 +1,13 @@
-import type { TabsOpenOrFocusPayload } from "@bridge/shared-proto";
+import type { TabsOpenOrFocusPayload, WindowInfo } from "@bridge/shared-proto";
 import {
   EnvelopeSchema,
+  FocusWindowPayloadSchema,
+  PresenceStatusPayloadSchema,
   TabsListPayloadSchema,
   TabsOpenOrFocusPayloadSchema,
-  TabsSavedPayloadSchema,
   TabsRestorePayloadSchema,
-  PresenceStatusPayloadSchema,
-  FocusWindowPayloadSchema
+  TabsSavedPayloadSchema,
+  WindowsListPayloadSchema
 } from "@bridge/shared-proto";
 
 const HOST_NAME = "com.bridge.app";
@@ -18,27 +19,28 @@ let connectionId: string | null = null;
 let browser: string | null = null;
 let isConnectionReady = false;
 
-const randomId = (): string => {
-  const globalCrypto = globalThis.crypto;
-  if (globalCrypto?.randomUUID) {
-    return globalCrypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-};
+const windowInfoCache = new Map<number, WindowInfo>();
 
-const notifyFocusWindow = (windowId?: number | null, title?: string | null, url?: string | null) => {
+const notifyFocusWindow = (windowId?: number | null) => {
+  if (windowId == null) {
+    console.warn("[bridge-ext] notifyFocusWindow called with no windowId");
+    return;
+  }
+
+  const windowInfo = windowInfoCache.get(windowId);
+  if (!windowInfo) {
+    console.warn(`[bridge-ext] No window info cached for windowId: ${windowId}`);
+    // Fallback or request update? For now, just warn.
+    return;
+  }
+
   try {
     const payload = FocusWindowPayloadSchema.parse({
-      windowId: windowId ?? undefined,
-      title: title ?? undefined,
-      url: url ?? undefined,
-      browser: browser ?? undefined,
-      connectionId: connectionId ?? undefined
+      hwnd: windowInfo.hwnd
     });
 
     postToNative({
       v: 1,
-      id: randomId(),
       type: "focus.window",
       payload
     });
@@ -62,20 +64,20 @@ const isValidUrl = (url: string): boolean => {
   if (!url || typeof url !== "string" || url.length === 0) {
     return false;
   }
-  
+
   // Block dangerous protocols
   const dangerousProtocols = ["javascript:", "data:", "vbscript:", "file:"];
   const lowerUrl = url.toLowerCase();
-  if (dangerousProtocols.some(protocol => lowerUrl.startsWith(protocol))) {
+  if (dangerousProtocols.some((protocol) => lowerUrl.startsWith(protocol))) {
     console.warn("[bridge-ext] Blocked dangerous URL protocol:", url);
     return false;
   }
-  
+
   // Allow chrome:// and chrome-extension:// for internal pages
   if (lowerUrl.startsWith("chrome://") || lowerUrl.startsWith("chrome-extension://")) {
     return true;
   }
-  
+
   // Validate http/https URLs
   try {
     const parsed = new URL(url);
@@ -141,10 +143,11 @@ const connectNative = () => {
   nativePort.onDisconnect.addListener(() => {
     nativePort = null;
     isConnectionReady = false;
+    windowInfoCache.clear();
     scheduleReconnect();
   });
 
-  // Don't send snapshot yet - wait for presence.status with connection metadata
+  // Don't send anything yet - wait for presence.status
 };
 
 const postToNative = (message: unknown) => {
@@ -163,7 +166,6 @@ const onFromNative = async (raw: unknown) => {
   try {
     switch (type) {
       case "presence.status": {
-        // Extract connection metadata from presence messages
         const status = PresenceStatusPayloadSchema.safeParse(payload);
         if (status.success && status.data.connectionId && status.data.browser) {
           const wasNotReady = !isConnectionReady;
@@ -171,11 +173,29 @@ const onFromNative = async (raw: unknown) => {
           browser = status.data.browser;
           isConnectionReady = true;
           console.log(`[bridge-ext] Connection established: ${browser} (${connectionId})`);
-          
-          // Send initial snapshot now that we have connection metadata
+
           if (wasNotReady) {
+            postToNative({ v: 1, type: "windows.list.request", payload: {} });
             void sendCurrentWindowTabs("initial-after-connect");
           }
+        }
+        break;
+      }
+      case "windows.list": {
+        const listPayload = WindowsListPayloadSchema.safeParse(payload);
+        if (listPayload.success) {
+          windowInfoCache.clear();
+          const allWindows = await chrome.windows.getAll();
+          for (const nativeWin of listPayload.data.windows) {
+            // Find the corresponding browser window by title match
+            const browserWin = allWindows.find((w) => nativeWin.title.includes(w.title ?? ""));
+            if (browserWin?.id != null) {
+              windowInfoCache.set(browserWin.id, nativeWin);
+            }
+          }
+          console.log("[bridge-ext] Updated window info cache:", windowInfoCache);
+        } else {
+          console.warn("[bridge-ext] Failed to parse windows.list payload", listPayload.error);
         }
         break;
       }
@@ -272,7 +292,6 @@ const saveAndCloseActiveWindow = async () => {
 
     postToNative({
       v: 1,
-      id: randomId(),
       type: "tabs.save",
       payload: savedPayload
     });
@@ -311,7 +330,7 @@ const restoreTabs = async (options: {
   const urls = options.urls
     .filter((u) => typeof u === "string" && u.length > 0)
     .filter(isValidUrl);
-  
+
   if (urls.length === 0) {
     console.warn("[bridge-ext] No valid URLs to restore");
     return;
@@ -389,11 +408,7 @@ const restoreTabs = async (options: {
       }
     }
 
-    notifyFocusWindow(
-      windowId,
-      urls[0],
-      urls[0]
-    );
+    notifyFocusWindow(windowId);
 
     return;
   }
@@ -404,7 +419,7 @@ const restoreTabs = async (options: {
   // Create all tabs first to maintain order and improve performance
   let firstTabId: number | undefined;
   const createdTabIds: number[] = [];
-  
+
   for (const [index, url] of urls.entries()) {
     try {
       const tab = await chrome.tabs.create(
@@ -449,11 +464,7 @@ const restoreTabs = async (options: {
     }
   }
 
-  notifyFocusWindow(
-    targetWindowId === chrome.windows.WINDOW_ID_NONE ? undefined : targetWindowId,
-    urls[0],
-    urls[0]
-  );
+  notifyFocusWindow(targetWindowId === chrome.windows.WINDOW_ID_NONE ? undefined : targetWindowId);
 };
 
 const discardTab = async (tabId?: number, waitForLoad = false) => {
@@ -496,7 +507,7 @@ const discardTab = async (tabId?: number, waitForLoad = false) => {
   };
 
   chrome.tabs.onUpdated.addListener(listener);
-  
+
   // Cleanup listener after 30 seconds if tab never completes loading
   const timeoutId = setTimeout(() => {
     chrome.tabs.onUpdated.removeListener(listener);
@@ -674,8 +685,6 @@ const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
 
   notifyFocusWindow(
     targetWindowId === chrome.windows.WINDOW_ID_NONE ? undefined : targetWindowId,
-    createdTab.title ?? createdTab.url ?? options.url,
-    createdTab.url ?? options.url
   );
 };
 

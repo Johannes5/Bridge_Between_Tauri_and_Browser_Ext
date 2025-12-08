@@ -1,8 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use once_cell::sync::Lazy;
-use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
@@ -14,24 +11,27 @@ use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 #[cfg(target_os = "windows")]
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::System::Threading::{
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetCurrentThreadId,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
-    SetForegroundWindow, SetWindowPos, ShowWindow, SwitchToThisWindow, HWND_NOTOPMOST, HWND_TOPMOST,
-    SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, ASFW_ANY, AttachThreadInput,
+    AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetForegroundWindow, SetWindowPos,
+    ShowWindow, SwitchToThisWindow, ASFW_ANY, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+    SW_RESTORE,
 };
 
 #[derive(Debug, Deserialize)]
 pub struct FocusWindowPayload {
-    #[serde(rename = "windowId")]
-    pub window_id: Option<i32>,
-    pub title: Option<String>,
-    pub url: Option<String>,
-    pub browser: Option<String>,
-    #[serde(rename = "connectionId")]
-    pub connection_id: Option<String>,
+    pub hwnd: Option<isize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WindowInfo {
+    pub hwnd: isize,
+    pub pid: u32,
+    pub title: String,
 }
 
 pub fn focus_window(payload: &FocusWindowPayload) -> Result<()> {
@@ -48,47 +48,25 @@ pub fn focus_window(payload: &FocusWindowPayload) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-static WINDOW_CACHE: Lazy<Mutex<HashMap<i32, isize>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
-#[cfg(target_os = "windows")]
 fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
     eprintln!("[sidecar] focus_window_windows payload: {:?}", payload);
 
-    let mut cache = WINDOW_CACHE
-        .lock()
-        .map_err(|err| anyhow!("focus cache poisoned: {err:#}"))?;
+    let hwnd_val = payload.hwnd.context("No HWND provided in payload")?;
+    let hwnd = HWND(hwnd_val);
 
-    // Currently unused but kept for future routing logic
-    let _ = &payload.connection_id;
-
-    if let Some(window_id) = payload.window_id {
-        if let Some(raw_hwnd) = cache.get(&window_id).copied() {
-            let hwnd = HWND(raw_hwnd);
-            if unsafe { IsWindow(hwnd).as_bool() } {
-                drop(cache);
-                bring_window_to_front(hwnd)?;
-                return Ok(());
-            } else {
-                cache.remove(&window_id);
-            }
-        }
+    if !unsafe { IsWindow(hwnd).as_bool() } {
+        return Err(anyhow!("Invalid HWND received: {}", hwnd_val));
     }
 
-    drop(cache);
+    bring_window_to_front(hwnd)?;
+    Ok(())
+}
 
-    let target_hint = payload
-        .title
-        .as_ref()
-        .map(|s| s.to_lowercase())
-        .or_else(|| payload.url.as_ref().map(|s| s.to_lowercase()));
-    let process_names = expected_process_names(payload.browser.as_deref());
-
-    let mut state = SearchState {
-        target_hint,
-        process_names,
-        best_hwnd: None,
-        best_score: 0,
+#[cfg(target_os = "windows")]
+pub fn list_browser_windows(browser_pid: u32) -> Result<Vec<WindowInfo>> {
+    let mut state = ListWindowsState {
+        browser_pid,
+        windows: Vec::new(),
     };
 
     unsafe {
@@ -98,61 +76,7 @@ fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
         );
     }
 
-    let hwnd = state
-        .best_hwnd
-        .context("No suitable browser window found")?;
-
-    if let Some(window_id) = payload.window_id {
-        match WINDOW_CACHE.lock() {
-            Ok(mut guard) => {
-                guard.insert(window_id, hwnd.0);
-            }
-            Err(e) => {
-                eprintln!("[sidecar] Warning: Window cache lock poisoned: {}", e);
-            }
-        }
-    }
-
-    bring_window_to_front(hwnd)?;
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn expected_process_names(browser: Option<&str>) -> Vec<String> {
-    let mut result = Vec::new();
-    if let Some(name) = browser {
-        let lower = name.to_lowercase();
-        if lower.contains("chrome") {
-            result.push("chrome.exe".to_string());
-        } else if lower.contains("edge") {
-            result.push("msedge.exe".to_string());
-        } else if lower.contains("brave") {
-            result.push("brave.exe".to_string());
-        } else if lower.contains("firefox") {
-            result.push("firefox.exe".to_string());
-        } else if lower.contains("comet") || lower.contains("perplexity") {
-            result.push("comet.exe".to_string());
-            result.push("chrome.exe".to_string());
-        } else {
-            result.push(format!("{lower}.exe"));
-        }
-    }
-
-    if result.is_empty() {
-        result.extend(
-            [
-                "chrome.exe",
-                "msedge.exe",
-                "brave.exe",
-                "comet.exe",
-                "firefox.exe",
-            ]
-            .iter()
-            .map(|s| s.to_string()),
-        );
-    }
-
-    result
+    Ok(state.windows)
 }
 
 #[cfg(target_os = "windows")]
@@ -193,61 +117,45 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-struct SearchState {
-    target_hint: Option<String>,
-    process_names: Vec<String>,
-    best_hwnd: Option<HWND>,
-    best_score: i32,
+struct ListWindowsState {
+    browser_pid: u32,
+    windows: Vec<WindowInfo>,
 }
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let state = &mut *(lparam.0 as *mut SearchState);
+    let state = &mut *(lparam.0 as *mut ListWindowsState);
 
     if !IsWindow(hwnd).as_bool() || !IsWindowVisible(hwnd).as_bool() {
         return BOOL(1);
     }
 
-    let mut score = 0;
-
     let mut pid = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut pid));
 
-    if let Some(name) = get_process_name(pid) {
-        if !state.process_names.is_empty()
-            && !state
-                .process_names
-                .iter()
-                .any(|expected| name.ends_with(expected))
-        {
-            return BOOL(1);
-        }
-        score += 100;
-    } else {
+    if pid != state.browser_pid {
         return BOOL(1);
     }
 
     let length = GetWindowTextLengthW(hwnd);
-    if length > 0 {
-        let mut buffer = vec![0u16; (length + 1) as usize];
-        let read = GetWindowTextW(hwnd, &mut buffer) as usize;
-        if read > 0 {
-            buffer.truncate(read);
-            let title = OsString::from_wide(&buffer).to_string_lossy().to_string();
-            if let Some(target) = &state.target_hint {
-                if !target.is_empty() && title.to_lowercase().contains(target) {
-                    score += 50;
-                }
-            }
-            if !title.is_empty() {
-                score += 5;
-            }
-        }
+    if length == 0 {
+        return BOOL(1);
     }
 
-    if score > state.best_score {
-        state.best_score = score;
-        state.best_hwnd = Some(hwnd);
+    let mut buffer = vec![0u16; (length + 1) as usize];
+    let read = GetWindowTextW(hwnd, &mut buffer) as usize;
+    if read > 0 {
+        buffer.truncate(read);
+        let title = OsString::from_wide(&buffer).to_string_lossy().to_string();
+        
+        // Basic filter to avoid capturing internal/utility windows
+        if !title.is_empty() && title.len() > 2 {
+             state.windows.push(WindowInfo {
+                hwnd: hwnd.0,
+                pid,
+                title,
+            });
+        }
     }
 
     BOOL(1)
