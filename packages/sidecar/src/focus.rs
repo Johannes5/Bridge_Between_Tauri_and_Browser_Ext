@@ -1,4 +1,6 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+#[cfg(target_os = "windows")]
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "windows")]
@@ -24,10 +26,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 #[derive(Debug, Deserialize)]
 pub struct FocusWindowPayload {
+    #[allow(dead_code)]
     pub hwnd: Option<isize>,
+    pub browser: Option<String>,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct WindowInfo {
     pub hwnd: isize,
     pub pid: u32,
@@ -45,11 +51,46 @@ pub fn focus_window(payload: &FocusWindowPayload) -> Result<()> {
         focus_window_macos(payload)
     }
 
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        focus_window_linux(payload)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         println!("[sidecar] focus.window not supported on this platform");
         Ok(())
     }
+}
+
+#[cfg(target_os = "linux")]
+fn focus_window_linux(payload: &FocusWindowPayload) -> Result<()> {
+    use std::process::Command;
+
+    // Try using wmctrl if available
+    if let Some(title) = &payload.title {
+        // -a activates the window
+        let output = Command::new("wmctrl")
+            .arg("-a")
+            .arg(title)
+            .output();
+
+        match output {
+            Ok(out) => {
+                if !out.status.success() {
+                    eprintln!("[sidecar] wmctrl failed: {}", String::from_utf8_lossy(&out.stderr));
+                    // If wmctrl fails or is not installed, we might want to try other methods or just log it.
+                }
+            }
+            Err(e) => {
+                eprintln!("[sidecar] wmctrl execution failed (is it installed?): {}", e);
+            }
+        }
+    } else {
+        eprintln!("[sidecar] No title provided for linux window focus");
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

@@ -3,7 +3,5 @@
   "description": "Bridge between extension and Tauri app",
   "path": "/Users/shashwatguta/Desktop/Bridge_Between_Tauri_and_Browser_Ext/packages/sidecar/target/release/bridge-sidecar",
   "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://mhfcnglaipimjmhifeejefmimoeehkak/"
-  ]
+  "allowed_origins": ["chrome-extension://mhfcnglaipimjmhifeejefmimoeehkak/"]
 }

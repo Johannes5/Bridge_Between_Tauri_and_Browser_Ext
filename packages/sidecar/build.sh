@@ -1,14 +1,24 @@
 #!/bin/bash
 set -e
 
-# Detect architecture
+# Detect architecture and OS
+OS=$(uname -s)
 ARCH=$(uname -m)
-if [ "$ARCH" == "arm64" ]; then
-    TARGET="aarch64-apple-darwin"
+
+if [ "$OS" == "Darwin" ]; then
+    if [ "$ARCH" == "arm64" ]; then
+        TARGET="aarch64-apple-darwin"
+    else
+        TARGET="x86_64-apple-darwin"
+    fi
+elif [ "$OS" == "Linux" ]; then
+    TARGET="x86_64-unknown-linux-gnu"
 else
-    TARGET="x86_64-apple-darwin"
+    echo "Unsupported OS: $OS"
+    exit 1
 fi
 
+echo "Detected OS: $OS"
 echo "Detected architecture: $ARCH"
 echo "Target triple: $TARGET"
 

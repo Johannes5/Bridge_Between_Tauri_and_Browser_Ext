@@ -59,11 +59,50 @@ fn detect_browser() -> String {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(name) = get_parent_process_name_linux() {
+            let lower = name.to_lowercase();
+            if lower.contains("chrome") {
+                return "Chrome".to_string();
+            } else if lower.contains("msedge") {
+                return "Edge".to_string();
+            } else if lower.contains("brave") {
+                return "Brave".to_string();
+            } else if lower.contains("firefox") {
+                return "Firefox".to_string();
+            }
+            return name;
+        }
+    }
+
     "Unknown".to_string()
 }
 
 #[cfg(target_os = "macos")]
 fn get_parent_process_name_macos() -> Option<String> {
+    use sysinfo::{Pid, System};
+    
+    let mut system = System::new();
+    let current_pid = Pid::from(std::process::id() as usize);
+    
+    // Refresh only the necessary process information
+    system.refresh_processes();
+    
+    // Find the current process
+    if let Some(process) = system.process(current_pid) {
+        if let Some(parent_pid) = process.parent() {
+            if let Some(parent_process) = system.process(parent_pid) {
+                return Some(parent_process.name().to_string());
+            }
+        }
+    }
+    
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_parent_process_name_linux() -> Option<String> {
     use sysinfo::{Pid, System};
     
     let mut system = System::new();
@@ -391,8 +430,8 @@ async fn bridge_to_app(
 
 fn handle_control_message(
     message: &str,
-    to_extension_tx: &mpsc::Sender<String>,
-    connection_id: &str,
+    _to_extension_tx: &mpsc::Sender<String>,
+    _connection_id: &str,
 ) -> Result<bool> {
     let value: serde_json::Value = match serde_json::from_str(message) {
         Ok(val) => val,
@@ -433,11 +472,11 @@ fn handle_control_message(
                                 "type": "windows.list",
                                 "payload": {
                                     "windows": windows,
-                                    "connectionId": connection_id
+                                    "connectionId": _connection_id
                                 }
                             });
                             let response_str = response.to_string();
-                            if to_extension_tx.blocking_send(response_str).is_err() {
+                            if _to_extension_tx.blocking_send(response_str).is_err() {
                                 eprintln!("[sidecar] Failed to send windows.list to extension");
                             }
                         }
