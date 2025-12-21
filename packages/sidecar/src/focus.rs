@@ -40,11 +40,70 @@ pub fn focus_window(payload: &FocusWindowPayload) -> Result<()> {
         focus_window_windows(payload)
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        focus_window_macos(payload)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         println!("[sidecar] focus.window not supported on this platform");
         Ok(())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn focus_window_macos(payload: &FocusWindowPayload) -> Result<()> {
+    use std::process::Command;
+
+    let browser_name = payload.browser.as_deref().unwrap_or("Chrome");
+    let app_name = match browser_name.to_lowercase().as_str() {
+        b if b.contains("chrome") => "Google Chrome",
+        b if b.contains("firefox") => "Firefox",
+        b if b.contains("edge") => "Microsoft Edge",
+        b if b.contains("brave") => "Brave Browser",
+        b if b.contains("safari") => "Safari",
+        _ => browser_name,
+    };
+
+    let script = if let Some(title) = &payload.title {
+        // Simple AppleScript to find window by title for Chrome/Brave
+        if app_name == "Google Chrome" || app_name == "Brave Browser" {
+            format!(
+                r#"
+                tell application "{}"
+                    activate
+                    repeat with w in windows
+                        if title of w contains "{}" then
+                            set index of w to 1
+                            exit repeat
+                        end if
+                    end repeat
+                end tell
+                "#,
+                app_name, title
+            )
+        } else {
+            // Fallback for other browsers or if title handling is different
+            format!(r#"tell application "{}" to activate"#, app_name)
+        }
+    } else {
+        format!(r#"tell application "{}" to activate"#, app_name)
+    };
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "osascript failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]

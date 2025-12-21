@@ -19,3 +19,7 @@ windows = { version = "0.56", features = [
   "Win32_System_ProcessStatus",
   "Win32_UI_WindowsAndMessaging"
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+sysinfo = "0.30"
+

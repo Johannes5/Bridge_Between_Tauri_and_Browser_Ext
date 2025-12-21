@@ -40,7 +40,48 @@ fn detect_browser() -> String {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(name) = get_parent_process_name_macos() {
+            let lower = name.to_lowercase();
+            if lower.contains("chrome") {
+                return "Chrome".to_string();
+            } else if lower.contains("msedge") {
+                return "Edge".to_string();
+            } else if lower.contains("brave") {
+                return "Brave".to_string();
+            } else if lower.contains("comet") || lower.contains("perplexity") {
+                return "Comet".to_string();
+            } else if lower.contains("firefox") {
+                return "Firefox".to_string();
+            }
+            return name;
+        }
+    }
+
     "Unknown".to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn get_parent_process_name_macos() -> Option<String> {
+    use sysinfo::{Pid, System};
+    
+    let mut system = System::new();
+    let current_pid = Pid::from(std::process::id() as usize);
+    
+    // Refresh only the necessary process information
+    system.refresh_processes();
+    
+    // Find the current process
+    if let Some(process) = system.process(current_pid) {
+        if let Some(parent_pid) = process.parent() {
+            if let Some(parent_process) = system.process(parent_pid) {
+                return Some(parent_process.name().to_string());
+            }
+        }
+    }
+    
+    None
 }
 
 #[cfg(target_os = "windows")]
