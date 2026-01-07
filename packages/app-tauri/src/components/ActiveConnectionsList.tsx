@@ -21,9 +21,15 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 
   React.useEffect(() => {
     // Show spinner for at least 1.5 seconds to allow connections to handshake
+    // BUT if we connect earlier, clear it immediately.
+    if (extensionStatus === "online") {
+        setIsInitializing(false);
+        return;
+    }
+    
     const timer = setTimeout(() => setIsInitializing(false), 1500);
     return () => clearTimeout(timer);
-  }, []);
+  }, [extensionStatus]);
 
   // Show loader if determining initial state OR if extension is not explicitly online
   const showLoader = isInitializing || extensionStatus !== "online";
