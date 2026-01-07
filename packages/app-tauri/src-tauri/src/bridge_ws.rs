@@ -10,9 +10,21 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tauri::Emitter;
+use tracing::{debug, error, info, warn};
 
-const APP_WS_PORT: u16 = 17342;
-const DEBUG_WS_PORT: u16 = 17888;
+fn get_app_port() -> u16 {
+    env::var("BRIDGE_APP_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(17342)
+}
+
+fn get_debug_port() -> u16 {
+    env::var("BRIDGE_DEBUG_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(17888)
+}
 
 type ConnectionId = String;
 
@@ -46,19 +58,21 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
     if let Err(err) =
       run_sidecar_listener(connections_for_listener, from_sidecar_tx, hub_for_sidecar).await
     {
-      eprintln!("[app] sidecar listener exited: {err:#}");
+      error!("[app] sidecar listener exited: {err:#}");
     }
   });
 
   let debug_enabled =
     cfg!(debug_assertions) || env::var("BRIDGE_DEBUG_WS").map(|v| v == "1").unwrap_or(false);
+  
   if debug_enabled {
     let hub_for_debug = hub.clone();
     let connections_for_debug = connections.clone();
     tauri::async_runtime::spawn(async move {
-      if let Err(err) = run_debug_listener(DEBUG_WS_PORT, hub_for_debug, connections_for_debug).await
+      let port = get_debug_port();
+      if let Err(err) = run_debug_listener(port, hub_for_debug, connections_for_debug).await
       {
-        eprintln!("[app] debug listener exited: {err:#}");
+        error!("[app] debug listener exited: {err:#}");
       }
     });
   }
@@ -71,9 +85,12 @@ async fn run_sidecar_listener(
   from_sidecar_tx: mpsc::Sender<String>,
   hub: DebugHub,
 ) -> Result<()> {
-  let listener = TcpListener::bind(("127.0.0.1", APP_WS_PORT))
+  let port = get_app_port();
+  let listener = TcpListener::bind(("127.0.0.1", port))
     .await
-    .with_context(|| format!("binding app ws on 127.0.0.1:{APP_WS_PORT}"))?;
+    .with_context(|| format!("binding app ws on 127.0.0.1:{port}"))?;
+  
+  info!("[app] Sidecar listener running on 127.0.0.1:{}", port);
 
   loop {
     let (stream, _) = listener.accept().await?;
@@ -99,17 +116,13 @@ async fn run_sidecar_listener(
           incoming = read.next() => {
             match incoming {
               Some(Ok(Message::Text(txt))) => {
-                eprintln!("[app] Received WebSocket message: {}", &txt[..txt.len().min(200)]);
+                debug!("[app] Received WebSocket message: {:.200}", txt);
                 
                 // Try to extract connection metadata from presence messages
                 if connection_id.is_none() {
-                  eprintln!("[app] Attempting to extract connection metadata");
                   if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
-                    eprintln!("[app] Parsed envelope, type: {:?}", envelope.get("type"));
                     if envelope.get("type").and_then(|t| t.as_str()) == Some("presence.status") {
-                      eprintln!("[app] Found presence.status message");
                       if let Some(payload) = envelope.get("payload") {
-                        eprintln!("[app] Payload: {:?}", payload);
                         if let Some(conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
                           connection_id = Some(conn_id.to_string());
                           browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
@@ -125,24 +138,16 @@ async fn run_sidecar_listener(
                                   sender: to_sidecar_tx.clone(),
                                 },
                               );
-                              eprintln!("[app] Connection registered: {} ({:?})", conn_id, browser);
+                              info!("[app] Connection registered: {} ({:?})", conn_id, browser);
                             }
                             Err(e) => {
-                              eprintln!("[app] Failed to register connection, lock poisoned: {}", e);
+                              error!("[app] Failed to register connection, lock poisoned: {}", e);
                             }
                           }
-                        } else {
-                          eprintln!("[app] No connectionId in payload");
                         }
-                      } else {
-                        eprintln!("[app] No payload in presence.status");
                       }
                     }
-                  } else {
-                    eprintln!("[app] Failed to parse message as JSON");
                   }
-                } else {
-                  eprintln!("[app] Connection already registered: {:?}", connection_id);
                 }
 
                 hub_clone.broadcast(&txt);
@@ -203,7 +208,7 @@ async fn run_sidecar_listener(
                 // ignore internal frames
               }
               Some(Err(err)) => {
-                eprintln!("[app] ws read error: {err:#}");
+                error!("[app] ws read error: {err:#}");
                 break;
               }
               None => break,
@@ -227,17 +232,17 @@ async fn run_sidecar_listener(
         .to_string();
         hub_clone.broadcast(&offline_payload);
         if let Err(e) = tx_clone.send(offline_payload).await {
-          eprintln!("[app] Failed to send offline notification: {}", e);
+          error!("[app] Failed to send offline notification: {}", e);
         }
 
         // Now remove from connection map
         match connections_clone.lock() {
           Ok(mut map) => {
             map.remove(&conn_id);
-            eprintln!("[app] Connection removed: {}", conn_id);
+            info!("[app] Connection removed: {}", conn_id);
           }
           Err(e) => {
-            eprintln!("[app] Failed to remove connection, lock poisoned: {}", e);
+            error!("[app] Failed to remove connection, lock poisoned: {}", e);
           }
         }
       }
@@ -280,25 +285,22 @@ impl BridgeHandle {
       let connections = match self.connections.lock() {
         Ok(guard) => guard,
         Err(e) => {
-          eprintln!("[app] Failed to acquire connections lock: {}", e);
+          error!("[app] Failed to acquire connections lock: {}", e);
           return Ok(()); // Return early, message won't be routed
         }
       };
       
       if let Some(ref target_id) = target_connection_id {
-        eprintln!("[app] [{}] Routing to connection: {}", msg_type, target_id);
-        eprintln!("[app] [{}] Available connections: {:?}", msg_type, connections.keys().collect::<Vec<_>>());
-        
         // Send to specific connection
         if let Some(conn) = connections.get(target_id) {
-          eprintln!("[app] [{}] Found target connection, sending to 1 connection", msg_type);
+            debug!("[app] [{}] Routing to target: {}", msg_type, target_id);
           vec![conn.sender.clone()]
         } else {
-          eprintln!("[app] [{}] Target connection not found: {}", msg_type, target_id);
+            warn!("[app] [{}] Target connection not found: {}", msg_type, target_id);
           vec![]
         }
       } else {
-        eprintln!("[app] [{}] No connectionId - broadcasting to {} connections", msg_type, connections.len());
+        debug!("[app] [{}] Broadcasting to {} connections", msg_type, connections.len());
         // Broadcast to all connections
         connections.values().map(|c| c.sender.clone()).collect()
       }
@@ -307,7 +309,7 @@ impl BridgeHandle {
     // Send messages without holding the lock
     for sender in senders {
       if let Err(e) = sender.send(message.clone()).await {
-        eprintln!("[app] Failed to send message to connection: {}", e);
+        error!("[app] Failed to send message to connection: {}", e);
       }
     }
 
@@ -331,6 +333,8 @@ async fn run_debug_listener(
   let listener = TcpListener::bind(("127.0.0.1", port))
     .await
     .with_context(|| format!("binding debug ws on 127.0.0.1:{port}"))?;
+
+    info!("[app] Debug listener running on 127.0.0.1:{}", port);
 
   loop {
     let (stream, _) = listener.accept().await?;
@@ -364,7 +368,7 @@ async fn run_debug_listener(
                   let connections_map = match connections_clone.lock() {
                     Ok(guard) => guard,
                     Err(e) => {
-                      eprintln!("[app] Debug listener: Failed to acquire lock: {}", e);
+                        error!("[app] Debug listener: Failed to acquire lock: {}", e);
                       continue;
                     }
                   };
@@ -386,7 +390,7 @@ async fn run_debug_listener(
                 // Send without holding the lock
                 for sender in senders {
                   if let Err(e) = sender.send(txt.clone()).await {
-                    eprintln!("[app] Debug listener: Failed to send message: {}", e);
+                    error!("[app] Debug listener: Failed to send message: {}", e);
                   }
                 }
               }
@@ -441,7 +445,7 @@ async fn run_debug_listener(
               }
               Some(Ok(Message::Frame(_))) => { /* ignore */ }
               Some(Err(err)) => {
-                eprintln!("[app] debug ws error: {err:#}");
+                error!("[app] debug ws error: {err:#}");
                 break;
               }
               None => break,
