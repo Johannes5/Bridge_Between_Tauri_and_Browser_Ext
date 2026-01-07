@@ -11,7 +11,7 @@ import { ActiveConnectionsList } from "./components/ActiveConnectionsList";
 import { SavedCollectionsList } from "./components/SavedCollectionsList";
 import { BridgeLog } from "./components/BridgeLog";
 import { useBridgeStore } from "./store";
-import type { SavedTabCollection, BrowserTabSnapshot } from "./types";
+import type { SavedTabCollection } from "./types";
 
 const randomId = () => `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 
@@ -143,21 +143,26 @@ const App: React.FC = () => {
     handleRequestTabs();
   };
 
-  const handleSaveCurrentTabs = (snapshot: BrowserTabSnapshot) => {
-    // Type assertion or update snapshot type to match what we need
+  const handleSaveTabs = (
+    tabs: TabDescriptor[], 
+    meta: { 
+      browser: string; 
+      connectionId: string; 
+      windowId?: number | null 
+    }
+  ) => {
     const payload = {
       id: randomId(),
-      windowId: snapshot.payload.windowId ?? null,
-      tabs: snapshot.payload.tabs,
+      windowId: meta.windowId ?? null,
+      tabs: tabs,
       reason: "app-manual",
       source: "app" as const,
       savedAt: Date.now(),
-      browser: snapshot.browser,
-      connectionId: snapshot.connectionId,
+      browser: meta.browser,
+      connectionId: meta.connectionId,
       label: null
     };
     
-    // We need to map to SavedTabCollection structure
     addSavedCollection({
        ...payload,
        label: inferLabel(payload.tabs)
@@ -198,37 +203,43 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="container">
-      <header>
-        <h1>Bridge Dev Console</h1>
-        <p>Inspect the desktop ⇄ extension bridge and trigger cross-process actions.</p>
+    <div className="max-w-7xl mx-auto p-8 font-sans text-gray-100">
+      <header className="mb-8 text-center">
+        <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">
+          Bridge Dev Console
+        </h1>
+        <p className="text-gray-400">
+          Inspect the desktop ⇄ extension bridge and trigger cross-process actions.
+        </p>
       </header>
 
-      <PresenceCard
-        presence={presence}
-        isSending={isSending}
-        error={error}
-        onRequestSnapshot={handleRequestTabs}
-        onOpenExample={handleOpenExample}
-      />
+      <div className="space-y-8">
+        <PresenceCard
+          presence={presence}
+          isSending={isSending}
+          error={error}
+          onRequestSnapshot={handleRequestTabs}
+          onOpenExample={handleOpenExample}
+        />
 
-      <ActiveConnectionsList
-        snapshots={browserSnapshots}
-        isSending={isSending}
-        onSaveSnapshot={handleSaveCurrentTabs}
-        onFocusTab={handleOpenTab}
-      />
+        <ActiveConnectionsList
+          snapshots={browserSnapshots}
+          isSending={isSending}
+          onSaveTabs={handleSaveTabs}
+          onFocusTab={handleOpenTab}
+        />
 
-      <SavedCollectionsList
-        collections={savedCollections}
-        browserTabs={browserTabs}
-        onClear={clearSavedCollections}
-        onRemove={removeSavedCollection}
-        onRestore={handleRestoreSavedCollection}
-        onOpenTab={handleOpenTab}
-      />
+        <SavedCollectionsList
+          collections={savedCollections}
+          browserTabs={browserTabs}
+          onClear={clearSavedCollections}
+          onRemove={removeSavedCollection}
+          onRestore={handleRestoreSavedCollection}
+          onOpenTab={handleOpenTab}
+        />
 
-      <BridgeLog entries={logEntries} />
+        <BridgeLog entries={logEntries} />
+      </div>
     </div>
   );
 };

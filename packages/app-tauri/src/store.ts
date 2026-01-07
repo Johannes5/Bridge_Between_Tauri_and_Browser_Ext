@@ -49,7 +49,7 @@ interface BridgeState {
 
 export const useBridgeStore = create<BridgeState>((set, get) => ({
   browserTabs: new Map(),
-  presence: {},
+  presence: { app: "online" },
   logEntries: [],
   savedCollections: [],
   isSending: false,

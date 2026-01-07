@@ -48,11 +48,11 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   };
 
   return (
-    <section className="card">
-      <h2>Saved Tab Collections</h2>
-      <div className="actions">
+    <section className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
+      <h2 className="text-xl font-semibold mb-4 text-gray-200">Saved Tab Collections</h2>
+      <div className="flex justify-end mb-4">
         <button
-          className="ghost"
+          className="text-gray-400 hover:text-red-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400"
           onClick={onClear}
           disabled={collections.length === 0}
         >
@@ -60,63 +60,94 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         </button>
       </div>
       {collections.length === 0 ? (
-        <p className="muted">No saved tab sets yet.</p>
+        <p className="text-gray-500 text-sm italic">No saved tab sets yet.</p>
       ) : (
-        <div className="saved-list">
+        <div className="space-y-4">
           {collections.map((entry) => (
-            <div key={entry.id} className="saved-entry">
-              <div className="saved-entry-header">
+            <div key={entry.id} className="border border-gray-700 rounded-lg p-4 bg-gray-900/30">
+              <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3>{entry.label ?? `Window with ${entry.tabs.length} tabs`}</h3>
-                  <div className="saved-meta">
+                  <h3 className="text-lg font-medium text-gray-200 mb-1">
+                    {entry.label ?? `Window with ${entry.tabs.length} tabs`}
+                  </h3>
+                  <div className="flex flex-wrap gap-2 text-xs text-gray-500 font-mono">
                     <span>{new Date(entry.savedAt).toLocaleString()}</span>
-                    {entry.source && <span>from {entry.source}</span>}
-                    {entry.browser && <span>{entry.browser}</span>}
+                    {entry.source && (
+                      <>
+                        <span>•</span>
+                        <span>from {entry.source}</span>
+                      </>
+                    )}
+                    {entry.browser && (
+                      <>
+                        <span>•</span>
+                        <span>{entry.browser}</span>
+                      </>
+                    )}
                     {typeof entry.windowId === "number" && (
-                      <span>window #{entry.windowId}</span>
+                      <>
+                        <span>•</span>
+                        <span>window #{entry.windowId}</span>
+                      </>
                     )}
                   </div>
                 </div>
-                <div className="saved-entry-actions">
-                  <button onClick={() => onRestore(entry, true)}>Restore (suspend)</button>
-                  <button onClick={() => onRestore(entry, false)}>Restore (eager)</button>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => onRestore(entry, true)}
+                    className="px-3 py-1.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 rounded text-xs font-medium transition-colors"
+                  >
+                    Restore (suspend)
+                  </button>
+                  <button 
+                    onClick={() => onRestore(entry, false)}
+                    className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded text-xs font-medium transition-colors"
+                  >
+                    Restore (eager)
+                  </button>
                   <button
-                    className="ghost destructive"
+                    className="px-3 py-1.5 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded text-xs font-medium transition-colors"
                     onClick={() => onRemove(entry.id)}
                   >
                     Remove
                   </button>
                 </div>
               </div>
-              <ul className="saved-tabs">
+              <ul className="space-y-2 mb-3">
                 {(expandedSaved[entry.id] ? entry.tabs : entry.tabs.slice(0, 5)).map((tab, idx) => (
-                  <li key={`${entry.id}-${tab.id ?? idx}`}>
-                    <span className="saved-tab-title">{tab.title ?? tab.url ?? "Untitled"}</span>
-                    <div className="saved-tab-controls">
+                  <li key={`${entry.id}-${tab.id ?? idx}`} className="flex items-center justify-between text-sm py-1 border-b border-gray-800/50 last:border-0 hover:bg-gray-800/50 px-2 -mx-2 rounded transition-colors group">
+                    <div className="flex flex-col min-w-0 flex-1 pr-4">
+                      <span className="text-gray-300 truncate" title={tab.title ?? undefined}>
+                        {tab.title ?? tab.url ?? "Untitled"}
+                      </span>
+                      {tab.url && <span className="text-gray-500 text-xs truncate font-mono">{tab.url}</span>}
+                    </div>
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                       {tab.url ? (
-                        <button onClick={() => handleOpenSingleTab(tab, entry)}>
+                        <button 
+                          onClick={() => handleOpenSingleTab(tab, entry)}
+                          className="text-blue-400 hover:text-blue-300 text-xs font-medium px-2 py-1 rounded bg-blue-900/20"
+                        >
                           Open
                         </button>
                       ) : (
-                        <span className="muted">No URL</span>
+                        <span className="text-gray-600 text-xs">No URL</span>
                       )}
                     </div>
-                    {tab.url && <span className="saved-tab-url">{tab.url}</span>}
                   </li>
                 ))}
               </ul>
               {entry.tabs.length > 5 && (
-                <div className="saved-entry-actions">
-                  <button className="ghost" onClick={() => toggleSavedExpanded(entry.id)}>
+                <div className="flex justify-center mt-2">
+                  <button 
+                    className="text-xs text-gray-500 hover:text-gray-300 transition-colors" 
+                    onClick={() => toggleSavedExpanded(entry.id)}
+                  >
                     {expandedSaved[entry.id]
                       ? "Show less"
-                      : `Show all (+${entry.tabs.length - 5})`}
+                      : `+${entry.tabs.length - 5} more tab(s)...`}
                   </button>
                 </div>
-              )}
-
-              {entry.tabs.length > 5 && (
-                <p className="muted">+{entry.tabs.length - 5} more tab(s)...</p>
               )}
             </div>
           ))}

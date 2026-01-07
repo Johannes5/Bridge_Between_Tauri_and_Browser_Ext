@@ -5,21 +5,21 @@ import type { TabDescriptor } from "@bridge/shared-proto";
 interface ActiveConnectionsListProps {
   snapshots: BrowserTabSnapshot[];
   isSending: boolean;
-  onSaveSnapshot: (snapshot: BrowserTabSnapshot) => void;
+  onSaveTabs: (tabs: TabDescriptor[], meta: { browser: string; connectionId: string; windowId?: number | null }) => void;
   onFocusTab: (tab: TabDescriptor, options?: { connectionId?: string; preferWindowId?: number }) => void;
 }
 
 export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   snapshots,
   isSending,
-  onSaveSnapshot,
+  onSaveTabs,
   onFocusTab
 }) => {
   if (snapshots.length === 0) {
     return (
-      <section className="card">
-        <h2>Current Window Tabs</h2>
-        <p className="muted">No browser connections yet. Make sure your browser extension is connected.</p>
+      <section className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
+        <h2 className="text-xl font-semibold mb-2 text-gray-200">Current Window Tabs</h2>
+        <p className="text-gray-500 text-sm">No browser connections yet. Make sure your browser extension is connected.</p>
       </section>
     );
   }
@@ -31,7 +31,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
           key={snapshot.connectionId}
           snapshot={snapshot}
           isSending={isSending}
-          onSave={onSaveSnapshot}
+          onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
       ))}
@@ -42,7 +42,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 interface ConnectionCardProps {
   snapshot: BrowserTabSnapshot;
   isSending: boolean;
-  onSave: (snapshot: BrowserTabSnapshot) => void;
+  onSave: (tabs: TabDescriptor[], meta: { browser: string; connectionId: string; windowId?: number | null }) => void;
   onFocus: (tab: TabDescriptor, options?: { connectionId?: string; preferWindowId?: number }) => void;
 }
 
@@ -65,33 +65,35 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
   const sortedWindowIds = Array.from(tabsByWindow.map.keys()).sort((a, b) => a - b);
 
   return (
-    <section className="card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2>Current Tabs - {snapshot.browser}</h2>
+    <section className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
+      <div className="flex justify-between items-center mb-1">
+        <h2 className="text-xl font-semibold text-gray-200">Current Tabs - {snapshot.browser}</h2>
         <button
-          onClick={() => onSave(snapshot)}
+          onClick={() => onSave(snapshot.payload.tabs, { browser: snapshot.browser, connectionId: snapshot.connectionId })}
           disabled={snapshot.payload.tabs.length === 0}
-          style={{ fontSize: "0.9rem" }}
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition-colors"
         >
-          Save These Tabs
+          Save All Tabs
         </button>
       </div>
-      <div className="muted" style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
+      <div className="text-xs text-gray-500 font-mono mb-6">
         Connection: {snapshot.connectionId} • Last update:{" "}
         {new Date(snapshot.lastUpdate).toLocaleTimeString()}
       </div>
 
       {snapshot.payload.tabs.length === 0 ? (
-        <p className="muted">No tabs available.</p>
+        <p className="text-gray-500 text-sm italic">No tabs available.</p>
       ) : (
-        <div className="window-groups">
+        <div className="space-y-6">
           {sortedWindowIds.map((windowId) => (
             <WindowGroup
               key={windowId}
               label={`Window #${windowId}`}
               tabs={tabsByWindow.map.get(windowId) ?? []}
+              browser={snapshot.browser}
               connectionId={snapshot.connectionId}
               isSending={isSending}
+              onSave={onSave}
               onFocus={onFocus}
               windowId={windowId}
             />
@@ -101,8 +103,10 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
             <WindowGroup
               label="Other Tabs"
               tabs={tabsByWindow.orphans}
+              browser={snapshot.browser}
               connectionId={snapshot.connectionId}
               isSending={isSending}
+              onSave={onSave}
               onFocus={onFocus}
             />
           )}
@@ -115,8 +119,10 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
 interface WindowGroupProps {
   label: string;
   tabs: TabDescriptor[];
+  browser: string;
   connectionId: string;
   isSending: boolean;
+  onSave: (tabs: TabDescriptor[], meta: { browser: string; connectionId: string; windowId?: number | null }) => void;
   onFocus: (tab: TabDescriptor, options?: { connectionId?: string; preferWindowId?: number }) => void;
   windowId?: number;
 }
@@ -124,52 +130,69 @@ interface WindowGroupProps {
 const WindowGroup: React.FC<WindowGroupProps> = ({ 
   label, 
   tabs, 
+  browser,
   connectionId, 
   isSending, 
+  onSave,
   onFocus,
   windowId 
 }) => {
   return (
-    <div className="window-group" style={{ marginBottom: "1.5rem" }}>
-      <h3 style={{ fontSize: "1rem", marginTop: 0, marginBottom: "0.5rem", opacity: 0.8 }}>
-        {label}
-      </h3>
-      <table className="tab-table">
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>URL</th>
-            <th>Last Accessed</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {tabs.map((tab) => (
-            <tr key={`${tab.id ?? tab.url}`}>
-              <td>{tab.title ?? "Untitled"}</td>
-              <td className="tab-url">{tab.url ?? "n/a"}</td>
-              <td>
-                {tab.lastAccessed
-                  ? new Date(tab.lastAccessed).toLocaleTimeString()
-                  : "unknown"}
-              </td>
-              <td>
-                <button
-                  onClick={() =>
-                    onFocus(tab, {
-                      connectionId,
-                      preferWindowId: windowId
-                    })
-                  }
-                  disabled={!tab.url || isSending}
-                >
-                  Focus
-                </button>
-              </td>
+    <div className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900/30">
+      <div className="flex justify-between items-center bg-gray-900/50 px-4 py-2 border-b border-gray-700">
+        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+          {label}
+        </h3>
+        <button
+          onClick={() => onSave(tabs, { browser, connectionId, windowId })}
+          className="text-xs text-indigo-400 hover:text-indigo-300 font-medium hover:underline"
+        >
+          Save Window
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-900/30 text-xs uppercase text-gray-500">
+            <tr>
+              <th className="px-4 py-2 font-medium">Title</th>
+              <th className="px-4 py-2 font-medium">URL</th>
+              <th className="px-4 py-2 font-medium">Last Accessed</th>
+              <th className="px-4 py-2" />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-700/50">
+            {tabs.map((tab) => (
+              <tr key={`${tab.id ?? tab.url}`} className="hover:bg-gray-700/30 transition-colors">
+                <td className="px-4 py-2 text-gray-200 max-w-xs truncate" title={tab.title ?? undefined}>
+                  {tab.title ?? "Untitled"}
+                </td>
+                <td className="px-4 py-2 text-gray-400 max-w-xs truncate font-mono text-xs" title={tab.url ?? undefined}>
+                  {tab.url ?? "n/a"}
+                </td>
+                <td className="px-4 py-2 text-gray-500 text-xs">
+                  {tab.lastAccessed
+                    ? new Date(tab.lastAccessed).toLocaleTimeString()
+                    : "unknown"}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    onClick={() =>
+                      onFocus(tab, {
+                        connectionId,
+                        preferWindowId: windowId
+                      })
+                    }
+                    disabled={!tab.url || isSending}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white text-xs font-medium rounded transition-colors"
+                  >
+                    Focus
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
