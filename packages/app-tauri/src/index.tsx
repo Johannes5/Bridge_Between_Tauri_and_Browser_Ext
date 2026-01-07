@@ -266,6 +266,7 @@ const App: React.FC = () => {
         <ActiveConnectionsList
           snapshots={browserSnapshots}
           isSending={isSending}
+          extensionStatus={presence.extension}
           onSaveTabs={handleSaveTabs}
           onFocusTab={handleOpenTab}
         />

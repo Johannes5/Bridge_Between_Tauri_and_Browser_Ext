@@ -17,6 +17,7 @@ import {
 
 const HOST_NAME = "com.bridge.app";
 const DEV = process.env.NODE_ENV !== "production";
+const KEEP_ALIVE_INTERVAL = 20000; // 20 seconds
 
 let updateDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -43,6 +44,15 @@ const connectNative = () => {
     state.windowInfoCache.clear();
     scheduleReconnect();
   });
+
+  // Start heartbeat
+  const heartbeat = setInterval(() => {
+      if (state.nativePort) {
+          postToNative({ v: 1, type: "ping", payload: {} });
+      } else {
+          clearInterval(heartbeat);
+      }
+  }, KEEP_ALIVE_INTERVAL);
 };
 
 const scheduleReconnect = (delay = 1500) => {
@@ -55,7 +65,7 @@ const scheduleReconnect = (delay = 1500) => {
 const onFromNative = async (raw: unknown) => {
   const parsed = EnvelopeSchema.safeParse(raw);
   if (!parsed.success) {
-    console.warn("[bridge-ext] received malformed envelope", raw);
+    if (DEV) console.warn("[bridge-ext] received malformed envelope", raw);
     return;
   }
 
@@ -64,18 +74,17 @@ const onFromNative = async (raw: unknown) => {
   try {
     switch (type) {
       case "presence.status": {
+        // We no longer rely on the app to assign us an ID. We authorize ourselves.
         const status = PresenceStatusPayloadSchema.safeParse(payload);
-        if (status.success && status.data.connectionId && status.data.browser) {
-          const wasNotReady = !state.isConnectionReady;
-          state.connectionId = status.data.connectionId;
-          state.browser = status.data.browser;
-          state.isConnectionReady = true;
-          console.log(`[bridge-ext] Connection established: ${state.browser} (${state.connectionId})`);
-
-          if (wasNotReady) {
-            postToNative({ v: 1, type: "windows.list.request", payload: {} });
-            void sendCurrentWindowTabs("initial-after-connect");
-          }
+        if (status.success) {
+           if (!state.isConnectionReady) {
+               state.isConnectionReady = true;
+               console.log(`[bridge-ext] Handshake complete. Self-assigned: ${state.browser} (${state.connectionId})`);
+               
+               // Send initial data
+               postToNative({ v: 1, type: "windows.list.request", payload: {} });
+               void sendCurrentWindowTabs("initial-after-connect");
+           }
         }
         break;
       }
@@ -121,7 +130,12 @@ const onFromNative = async (raw: unknown) => {
           v: 1,
           id,
           type: "presence.status",
-          payload: { extension: "online", timestamp: Date.now() }
+          payload: { 
+              extension: "online", 
+              timestamp: Date.now(),
+              connectionId: state.connectionId ?? undefined,
+              browser: state.browser ?? undefined
+          }
         });
         break;
       default:
@@ -143,28 +157,25 @@ const onFromNative = async (raw: unknown) => {
   }
 };
 
+import { deltaManager } from "./background/delta-manager";
+
 const subscribeTabEvents = () => {
-  // Debounce tabs.onUpdated to avoid excessive snapshot spam
-  const debouncedUpdateHandler = () => {
-    if (updateDebounceTimer) {
-      clearTimeout(updateDebounceTimer);
-    }
-    updateDebounceTimer = setTimeout(() => {
-      void sendCurrentWindowTabs("updated");
-      updateDebounceTimer = undefined;
-    }, 300); // Wait 300ms after last update before sending snapshot
-  };
+  // Use DeltaManager for granular updates
+  chrome.tabs.onCreated.addListener((tab) => deltaManager.queueAdded(tab));
   
-  chrome.tabs.onCreated.addListener(() => void sendCurrentWindowTabs("created"));
-  chrome.tabs.onUpdated.addListener((_id, changeInfo, _tab) => {
-    // Only send snapshots for meaningful changes (URL, title, or pinned state)
-    if (changeInfo.url || changeInfo.title || changeInfo.pinned !== undefined) {
-      debouncedUpdateHandler();
+  chrome.tabs.onUpdated.addListener((_id, changeInfo, tab) => {
+    // Only send updates for meaningful changes
+    if (changeInfo.url || changeInfo.title || changeInfo.pinned !== undefined || changeInfo.status === "complete") {
+      deltaManager.queueUpdated(tab);
     }
   });
-  chrome.tabs.onRemoved.addListener((_id, _info) => void sendCurrentWindowTabs("removed"));
-  chrome.tabs.onAttached.addListener((_id, _info) => void sendCurrentWindowTabs("attached"));
-  chrome.tabs.onDetached.addListener((_id, _info) => void sendCurrentWindowTabs("detached"));
+  
+  chrome.tabs.onRemoved.addListener((tabId) => deltaManager.queueRemoved(tabId));
+  
+  // For structural changes (window movement), we still fall back to full sync for safety for now,
+  // or we could implement move support in DeltaManager later.
+  chrome.tabs.onAttached.addListener(() => void sendCurrentWindowTabs("attached"));
+  chrome.tabs.onDetached.addListener(() => void sendCurrentWindowTabs("detached"));
   chrome.windows.onFocusChanged.addListener(() => void sendCurrentWindowTabs("focus-changed"));
 };
 

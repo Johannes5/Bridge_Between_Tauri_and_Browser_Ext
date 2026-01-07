@@ -6,8 +6,10 @@ import {
   PresenceStatusPayloadSchema,
   TabsListPayloadSchema,
   TabsSavedPayloadSchema,
+  TabsDeltaPayloadSchema,
   type Envelope,
-  type TabsListPayload
+  type TabsListPayload,
+  type TabsDeltaPayload,
 } from "@bridge/shared-proto";
 import type { 
   PresenceState, 
@@ -45,6 +47,8 @@ interface BridgeState {
   
   // Initialization
   startListening: () => Promise<() => void>;
+  
+  applyBrowserDelta: (connectionId: string, payload: TabsDeltaPayload) => void;
 }
 
 export const useBridgeStore = create<BridgeState>((set, get) => ({
@@ -76,6 +80,53 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
       connectionId,
       payload,
       lastUpdate: Date.now()
+    });
+    return { browserTabs: updated };
+  }),
+
+  applyBrowserDelta: (connectionId, payload) => set((state) => {
+    const existing = state.browserTabs.get(connectionId);
+    if (!existing) return {};
+
+    let tabs = [...existing.payload.tabs];
+
+    // 1. Remove
+    if (payload.removed.length > 0) {
+        const removedSet = new Set(payload.removed);
+        tabs = tabs.filter(t => t.id == null || !removedSet.has(t.id));
+    }
+
+    // 2. Add / Update (Upsert)
+    const tabMap = new Map<number, number>();
+    tabs.forEach((t, i) => { if (t.id != null) tabMap.set(t.id, i); });
+
+    const upserts = [...payload.added, ...payload.updated];
+    for (const tab of upserts) {
+        if (tab.id == null) continue;
+        if (tabMap.has(tab.id)) {
+            const idx = tabMap.get(tab.id)!;
+            tabs[idx] = tab;
+        } else {
+            tabs.push(tab);
+        }
+    }
+
+    // 3. Re-sort
+    tabs.sort((a, b) => {
+        if (a.windowId !== b.windowId) {
+             return (a.windowId ?? 0) - (b.windowId ?? 0);
+        }
+        return (a.index ?? 0) - (b.index ?? 0);
+    });
+
+    const updated = new Map(state.browserTabs);
+    updated.set(connectionId, {
+        ...existing,
+        lastUpdate: Date.now(),
+        payload: {
+            ...existing.payload,
+            tabs
+        }
     });
     return { browserTabs: updated };
   }),
@@ -175,15 +226,17 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
   startListening: async () => {
     const unlisten = await listen<string>("bridge://incoming", (event) => {
       const raw = event.payload;
-      const { pushLog, setPresence, updateBrowserSnapshot, removeConnection, addSavedCollection } = get();
+      const { pushLog, setPresence, updateBrowserSnapshot, applyBrowserDelta, removeConnection, addSavedCollection, sendEnvelope } = get();
       
       try {
         const envelope = EnvelopeSchema.parse(JSON.parse(raw));
-        pushLog({
-          at: Date.now(),
-          type: envelope.type,
-          summary: envelope.id ? `id=${envelope.id}` : "received"
-        });
+        if (envelope.type !== "ping") {
+             pushLog({
+               at: Date.now(),
+               type: envelope.type,
+               summary: envelope.id ? `id=${envelope.id}` : "received"
+             });
+        }
 
         switch (envelope.type) {
           case "tabs.list": {
@@ -225,6 +278,18 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
             
             if (payload.sidecar === "offline" && payload.connectionId) {
               removeConnection(payload.connectionId);
+            } else if (payload.connectionId && payload.browser && payload.sidecar !== "offline") {
+                 // New connection or re-announced presence? Request tabs if we don't have them or to refresh.
+                 
+                 // New connection or re-announced presence? Request tabs if we don't have them or to refresh.
+                 
+                 // We must send the request using the sendEnvelope action which handles async
+                 sendEnvelope({
+                     v: 1,
+                     type: "tabs.list.request",
+                     id: `auto-req-${Date.now()}`,
+                     payload: { connectionId: payload.connectionId }
+                 });
             }
             break;
           }
@@ -233,6 +298,14 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
                 ? (envelope.payload as Record<string, unknown>).error
                 : undefined;
              set({ error: typeof message === "string" ? message : "Bridge reported an unknown error" });
+            break;
+          }
+          case "tabs.delta": {
+            const payload = TabsDeltaPayloadSchema.parse(envelope.payload);
+            const connectionId = payload.connectionId;
+            if (connectionId) {
+                applyBrowserDelta(connectionId, payload);
+            }
             break;
           }
         }

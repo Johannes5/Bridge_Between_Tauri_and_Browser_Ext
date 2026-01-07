@@ -5,6 +5,7 @@ import type { TabDescriptor } from "@bridge/shared-proto";
 interface ActiveConnectionsListProps {
   snapshots: BrowserTabSnapshot[];
   isSending: boolean;
+  extensionStatus?: string;
   onSaveTabs: (tabs: TabDescriptor[], meta: { browser: string; connectionId: string; windowId?: number | null }) => void;
   onFocusTab: (tab: TabDescriptor, options?: { connectionId?: string; preferWindowId?: number }) => void;
 }
@@ -12,10 +13,36 @@ interface ActiveConnectionsListProps {
 export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   snapshots,
   isSending,
+  extensionStatus,
   onSaveTabs,
   onFocusTab
 }) => {
+  const [isInitializing, setIsInitializing] = React.useState(true);
+
+  React.useEffect(() => {
+    // Show spinner for at least 1.5 seconds to allow connections to handshake
+    const timer = setTimeout(() => setIsInitializing(false), 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Show loader if determining initial state OR if extension is not explicitly online
+  const showLoader = isInitializing || extensionStatus !== "online";
+
   if (snapshots.length === 0) {
+    if (showLoader) {
+        return (
+            <div className="flex flex-col items-center justify-center h-64 bg-gray-900/50 rounded-xl border border-gray-800">
+                <div className="w-10 h-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+                <p className="text-gray-400 font-medium animate-pulse">
+                    {extensionStatus === "online" ? "Syncing tabs..." : "Waiting for extension connection..."}
+                </p>
+                <p className="text-xs text-gray-600 mt-2">
+                    {extensionStatus === "online" ? "Just a moment." : "Make sure your browser is open."}
+                </p>
+            </div>
+        );
+    }
+
     return (
       <section className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
         <h2 className="text-xl font-semibold mb-2 text-gray-200">Current Window Tabs</h2>

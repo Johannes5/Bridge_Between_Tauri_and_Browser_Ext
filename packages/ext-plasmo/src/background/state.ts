@@ -10,7 +10,25 @@ class GlobalState {
   public windowInfoCache = new Map<number, WindowInfo>();
   public reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-  private constructor() {}
+  private constructor() {
+    this.connectionId = this.generateId();
+    this.browser = this.detectBrowser();
+  }
+
+  private generateId(): string {
+     // Simple random ID
+     return `ext-${Math.random().toString(36).substring(2, 10)}`;
+  }
+
+  private detectBrowser(): string {
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes("edg/")) return "edge";
+    if (ua.includes("opr/") || ua.includes("opera/")) return "opera";
+    if (ua.includes("brave")) return "brave"; // Brave hides this often, but sometimes present
+    if (ua.includes("firefox")) return "firefox";
+    if (ua.includes("chrome")) return "chrome";
+    return "unknown-browser";
+  }
 
   public static getInstance(): GlobalState {
     if (!GlobalState.instance) {

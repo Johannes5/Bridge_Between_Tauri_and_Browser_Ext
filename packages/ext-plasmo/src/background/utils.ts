@@ -14,6 +14,7 @@ export const serializeTab = (tab: chrome.tabs.Tab) => ({
   favIconUrl: tab.favIconUrl ?? undefined,
   lastAccessed: coerceLastAccessed(tab),
   windowId: tab.windowId ?? undefined,
+  index: tab.index ?? undefined,
   groupId: (tab as chrome.tabs.Tab & { groupId?: number }).groupId ?? undefined,
   pinned: tab.pinned ?? false
 });

@@ -94,7 +94,7 @@ async fn run_sidecar_listener(
   info!("[app] Sidecar listener running on 127.0.0.1:{}", port);
 
   loop {
-    let (stream, _) = listener.accept().await?;
+    let (stream, addr) = listener.accept().await?;
     let ws_stream = accept_async(stream).await?;
     let (mut write, mut read) = ws_stream.split();
 
@@ -103,8 +103,35 @@ async fn run_sidecar_listener(
     let hub_clone = hub.clone();
     let connections_clone = connections.clone();
 
-    let mut connection_id: Option<ConnectionId> = None;
+    // Register temporary connection immediately to allow broadcasting
+    let temp_id = format!("temp-{}", addr);
+    let mut connection_id = Some(temp_id.clone());
     let mut browser: Option<String> = None;
+
+    {
+        let mut map = connections_clone.write().await;
+        map.insert(
+            temp_id.clone(),
+            ConnectionMeta {
+                id: temp_id.clone(),
+                browser: None,
+                sender: to_sidecar_tx.clone(),
+            },
+        );
+        info!("[app] Registered temp connection: {}", temp_id);
+
+        // Initiate handshake immediately
+        let handshake = json!({
+            "v": 1,
+            "id": format!("init-{}", addr),
+            "type": "presence.query",
+            "payload": { "requester": "bridge-host" }
+        }).to_string();
+        
+        if let Err(e) = to_sidecar_tx.send(handshake).await {
+             warn!("[app] Failed to send handshake to {}: {}", temp_id, e);
+        }
+    }
 
     tokio::spawn(async move {
       loop {
@@ -119,26 +146,44 @@ async fn run_sidecar_listener(
               Some(Ok(Message::Text(txt))) => {
                 debug!("[app] Received WebSocket message: {:.200}", txt);
                 
-                // Try to extract connection metadata from presence messages
-                if connection_id.is_none() {
-                  if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
-                    if envelope.get("type").and_then(|t| t.as_str()) == Some("presence.status") {
-                      if let Some(payload) = envelope.get("payload") {
-                        if let Some(conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
-                          connection_id = Some(conn_id.to_string());
-                          browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
-                          
-                          // Register this connection
-                          let mut map = connections_clone.write().await;
-                          map.insert(
-                            conn_id.to_string(),
-                            ConnectionMeta {
-                              id: conn_id.to_string(),
-                              browser: browser.clone(),
-                              sender: to_sidecar_tx.clone(),
-                            },
-                          );
-                          info!("[app] Connection registered: {} ({:?})", conn_id, browser);
+                // Check for presence update to promote connection
+                if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
+                  if envelope.get("type").and_then(|t| t.as_str()) == Some("presence.status") {
+                    if let Some(payload) = envelope.get("payload") {
+                      if let Some(real_conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
+                        let new_id = real_conn_id.to_string();
+                        let new_browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
+                        
+                        // Promote if ID changed or just updating metadata
+                        let current_id = connection_id.as_ref().unwrap(); // We always have a temp ID at least
+                        
+                        if current_id != &new_id {
+                           let mut map = connections_clone.write().await;
+                           // Remove old ID
+                           map.remove(current_id);
+                           
+                           // Insert new ID
+                           map.insert(
+                             new_id.clone(),
+                             ConnectionMeta {
+                               id: new_id.clone(),
+                               browser: new_browser.clone(),
+                               sender: to_sidecar_tx.clone(),
+                             },
+                           );
+                           
+                           info!("[app] Connection promoted: {} -> {} ({:?})", current_id, new_id, new_browser);
+                           connection_id = Some(new_id);
+                           browser = new_browser;
+                        } else {
+                            // Just update browser info if needed
+                            if browser != new_browser {
+                                let mut map = connections_clone.write().await;
+                                if let Some(meta) = map.get_mut(current_id) {
+                                    meta.browser = new_browser.clone();
+                                }
+                                browser = new_browser;
+                            }
                         }
                       }
                     }
