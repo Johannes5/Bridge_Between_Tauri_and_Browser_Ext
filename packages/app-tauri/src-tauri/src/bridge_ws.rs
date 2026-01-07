@@ -4,10 +4,10 @@ use serde_json::{json, Value};
 use std::{
   collections::HashMap,
   env,
-  sync::{Arc, Mutex},
+  sync::Arc,
 };
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tauri::Emitter;
 use tracing::{debug, error, info, warn};
@@ -36,10 +36,10 @@ struct ConnectionMeta {
   sender: mpsc::Sender<String>,
 }
 
-type ConnectionMap = Arc<Mutex<HashMap<ConnectionId, ConnectionMeta>>>;
+type ConnectionMap = Arc<RwLock<HashMap<ConnectionId, ConnectionMeta>>>;
 
 pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
-  let connections: ConnectionMap = Arc::new(Mutex::new(HashMap::new()));
+  let connections: ConnectionMap = Arc::new(RwLock::new(HashMap::new()));
   let (from_sidecar_tx, mut from_sidecar_rx) = mpsc::channel::<String>(256);
 
   let hub = DebugHub::default();
@@ -129,22 +129,16 @@ async fn run_sidecar_listener(
                           browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
                           
                           // Register this connection
-                          match connections_clone.lock() {
-                            Ok(mut map) => {
-                              map.insert(
-                                conn_id.to_string(),
-                                ConnectionMeta {
-                                  id: conn_id.to_string(),
-                                  browser: browser.clone(),
-                                  sender: to_sidecar_tx.clone(),
-                                },
-                              );
-                              info!("[app] Connection registered: {} ({:?})", conn_id, browser);
-                            }
-                            Err(e) => {
-                              error!("[app] Failed to register connection, lock poisoned: {}", e);
-                            }
-                          }
+                          let mut map = connections_clone.write().await;
+                          map.insert(
+                            conn_id.to_string(),
+                            ConnectionMeta {
+                              id: conn_id.to_string(),
+                              browser: browser.clone(),
+                              sender: to_sidecar_tx.clone(),
+                            },
+                          );
+                          info!("[app] Connection registered: {} ({:?})", conn_id, browser);
                         }
                       }
                     }
@@ -237,15 +231,9 @@ async fn run_sidecar_listener(
         }
 
         // Now remove from connection map
-        match connections_clone.lock() {
-          Ok(mut map) => {
-            map.remove(&conn_id);
-            info!("[app] Connection removed: {}", conn_id);
-          }
-          Err(e) => {
-            error!("[app] Failed to remove connection, lock poisoned: {}", e);
-          }
-        }
+        let mut map = connections_clone.write().await;
+        map.remove(&conn_id);
+        info!("[app] Connection removed: {}", conn_id);
       }
     });
   }
@@ -281,15 +269,9 @@ impl BridgeHandle {
       (None, "unparseable".to_string())
     };
 
-    // Clone senders before await to avoid holding the lock
+    // Clone senders without holding the lock for long
     let senders: Vec<mpsc::Sender<String>> = {
-      let connections = match self.connections.lock() {
-        Ok(guard) => guard,
-        Err(e) => {
-          error!("[app] Failed to acquire connections lock: {}", e);
-          return Ok(()); // Return early, message won't be routed
-        }
-      };
+      let connections = self.connections.read().await;
       
       if let Some(ref target_id) = target_connection_id {
         // Send to specific connection
@@ -318,8 +300,8 @@ impl BridgeHandle {
   }
 
   #[allow(dead_code)]
-  pub fn get_connections(&self) -> Vec<(String, Option<String>)> {
-    let connections = self.connections.lock().unwrap();
+  pub async fn get_connections(&self) -> Vec<(String, Option<String>)> {
+    let connections = self.connections.read().await;
     connections
       .values()
       .map(|c| (c.id.clone(), c.browser.clone()))
@@ -367,13 +349,7 @@ async fn run_debug_listener(
                     .and_then(|c| c.as_str())
                     .map(|s| s.to_string());
 
-                  let connections_map = match connections_clone.lock() {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        error!("[app] Debug listener: Failed to acquire lock: {}", e);
-                      continue;
-                    }
-                  };
+                  let connections_map = connections_clone.read().await;
 
                   if let Some(target_id) = target_connection_id {
                     if let Some(conn) = connections_map.get(&target_id) {
@@ -461,7 +437,7 @@ async fn run_debug_listener(
 
 #[derive(Clone, Default)]
 struct DebugHub {
-  peers: Arc<Mutex<Vec<mpsc::UnboundedSender<String>>>>,
+  peers: Arc<std::sync::Mutex<Vec<mpsc::UnboundedSender<String>>>>,
 }
 
 impl DebugHub {
