@@ -7,7 +7,7 @@ use std::{
   sync::Arc,
 };
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, RwLock, Mutex};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tauri::Emitter;
 use tracing::{debug, error, info, warn};
@@ -48,7 +48,7 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
 
   tauri::async_runtime::spawn(async move {
     while let Some(msg) = from_sidecar_rx.recv().await {
-      incoming_hub.broadcast(&msg);
+      incoming_hub.broadcast(&msg).await;
       let _ = app_handle.emit("bridge://incoming", msg);
     }
   });
@@ -145,7 +145,7 @@ async fn run_sidecar_listener(
                   }
                 }
 
-                hub_clone.broadcast(&txt);
+                hub_clone.broadcast(&txt).await;
                 if tx_clone.send(txt).await.is_err() {
                   break;
                 }
@@ -166,7 +166,7 @@ async fn run_sidecar_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 if write.send(Message::Pong(payload)).await.is_err() {
                   break;
                 }
@@ -178,7 +178,7 @@ async fn run_sidecar_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
               }
               Some(Ok(Message::Close(frame))) => {
                 let code = frame.as_ref().map(|f| u16::from(f.code));
@@ -196,7 +196,7 @@ async fn run_sidecar_listener(
                   "payload": { "code": code, "reason": reason }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 break;
               }
               Some(Ok(Message::Frame(_))) => {
@@ -225,7 +225,7 @@ async fn run_sidecar_listener(
           }
         })
         .to_string();
-        hub_clone.broadcast(&offline_payload);
+        hub_clone.broadcast(&offline_payload).await;
         if let Err(e) = tx_clone.send(offline_payload).await {
           error!("[app] Failed to send offline notification: {}", e);
         }
@@ -254,7 +254,7 @@ impl BridgeHandle {
     &self,
     message: String,
   ) -> std::result::Result<(), mpsc::error::SendError<String>> {
-    self.hub.broadcast(&message);
+    self.hub.broadcast(&message).await;
 
     // Try to extract connectionId and message type
     let (target_connection_id, msg_type) = if let Ok(envelope) = serde_json::from_str::<Value>(&message) {
@@ -324,7 +324,7 @@ async fn run_debug_listener(
     let (stream, _) = listener.accept().await?;
     let ws_stream = accept_async(stream).await?;
     let (mut write, mut read) = ws_stream.split();
-    let mut rx = hub.register();
+    let mut rx = hub.register().await;
     let hub_clone = hub.clone();
     let connections_clone = connections.clone();
 
@@ -339,7 +339,7 @@ async fn run_debug_listener(
           incoming = read.next() => {
             match incoming {
               Some(Ok(Message::Text(txt))) => {
-                hub_clone.broadcast(&txt);
+                hub_clone.broadcast(&txt).await;
 
                 // Route message to appropriate connection or broadcast
                 let senders: Vec<mpsc::Sender<String>> = if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
@@ -379,7 +379,7 @@ async fn run_debug_listener(
                   "payload": { "bytes": bin.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&payload);
+                hub_clone.broadcast(&payload).await;
               }
               Some(Ok(Message::Ping(payload))) => {
                 let info = json!({
@@ -388,7 +388,7 @@ async fn run_debug_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 if write.send(Message::Pong(payload)).await.is_err() {
                   break;
                 }
@@ -400,7 +400,7 @@ async fn run_debug_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
               }
               Some(Ok(Message::Close(frame))) => {
                 let code = frame.as_ref().map(|f| u16::from(f.code));
@@ -418,7 +418,7 @@ async fn run_debug_listener(
                   "payload": { "code": code, "reason": reason }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 break;
               }
               Some(Ok(Message::Frame(_))) => { /* ignore */ }
@@ -437,18 +437,18 @@ async fn run_debug_listener(
 
 #[derive(Clone, Default)]
 struct DebugHub {
-  peers: Arc<std::sync::Mutex<Vec<mpsc::UnboundedSender<String>>>>,
+  peers: Arc<Mutex<Vec<mpsc::UnboundedSender<String>>>>,
 }
 
 impl DebugHub {
-  fn broadcast(&self, message: &str) {
-    let mut peers = self.peers.lock().unwrap();
+  async fn broadcast(&self, message: &str) {
+    let mut peers = self.peers.lock().await;
     peers.retain(|tx| tx.send(message.to_owned()).is_ok());
   }
 
-  fn register(&self) -> mpsc::UnboundedReceiver<String> {
+  async fn register(&self) -> mpsc::UnboundedReceiver<String> {
     let (tx, rx) = mpsc::unbounded_channel();
-    self.peers.lock().unwrap().push(tx);
+    self.peers.lock().await.push(tx);
     rx
   }
 }
