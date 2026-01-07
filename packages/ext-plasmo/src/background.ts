@@ -112,7 +112,8 @@ const resolveWindowSnapshot = async (window?: chrome.windows.Window) => {
     windowId,
     tabs,
     payload: basePayload,
-    title: window?.title ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    title: (window as any)?.title ?? null
   };
 };
 
@@ -188,7 +189,10 @@ const onFromNative = async (raw: unknown) => {
           const allWindows = await chrome.windows.getAll();
           for (const nativeWin of listPayload.data.windows) {
             // Find the corresponding browser window by title match
-            const browserWin = allWindows.find((w) => nativeWin.title.includes(w.title ?? ""));
+            const browserWin = allWindows.find((w) => 
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              nativeWin.title.includes((w as any).title ?? "")
+            );
             if (browserWin?.id != null) {
               windowInfoCache.set(browserWin.id, nativeWin);
             }
@@ -244,22 +248,28 @@ const onFromNative = async (raw: unknown) => {
 
 const sendCurrentWindowTabs = async (reason: string) => {
   try {
-    const focusedWindow = await chrome.windows.getLastFocused({ populate: true }).catch(() => undefined);
-    if (!focusedWindow || focusedWindow.id === chrome.windows.WINDOW_ID_NONE) {
-      console.warn("[bridge-ext] No focused window available");
-      return;
-    }
-    const { payload } = await resolveWindowSnapshot(focusedWindow);
+    const allWindows = await chrome.windows.getAll({ populate: true });
+    
+    // Collect all tabs from all windows
+    const allTabs = allWindows.flatMap((win) => win.tabs ?? []);
+    
+    // Determine the "primary" window ID (e.g. focused one) if needed, 
+    // but for the list payload we can set windowId to null to indicate a multi-window snapshot.
+    // However, if there is only one window, we could set it. 
+    // Let's just set it to null to be consistent with our new frontend logic.
+    
+    const payload = TabsListPayloadSchema.parse({
+      windowId: null,
+      tabs: allTabs.map(serializeTab),
+      reason,
+      connectionId: connectionId ?? undefined,
+      browser: browser ?? undefined
+    });
 
     postToNative({
       v: 1,
       type: "tabs.list",
-      payload: {
-        ...payload,
-        reason,
-        connectionId: connectionId ?? undefined,
-        browser: browser ?? undefined
-      }
+      payload
     });
   } catch (error) {
     console.error("[bridge-ext] failed to emit tabs.list", error);
@@ -653,9 +663,7 @@ const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
     }
 
     notifyFocusWindow(
-      match.windowId ?? undefined,
-      match.title ?? match.url ?? options.url,
-      match.url ?? options.url
+      match.windowId ?? undefined
     );
     return;
   }

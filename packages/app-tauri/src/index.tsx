@@ -506,40 +506,111 @@ const App: React.FC = () => {
             {snapshot.payload.tabs.length === 0 ? (
               <p className="muted">No tabs in this window.</p>
             ) : (
-              <table className="tab-table">
-                <thead>
-                  <tr>
-                    <th>Title</th>
-                    <th>URL</th>
-                    <th>Last Accessed</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.payload.tabs.map((tab) => (
-                    <tr key={`${tab.id ?? tab.url}`}>
-                      <td>{tab.title ?? "Untitled"}</td>
-                      <td className="tab-url">{tab.url ?? "n/a"}</td>
-                      <td>
-                        {tab.lastAccessed
-                          ? new Date(tab.lastAccessed).toLocaleTimeString()
-                          : "unknown"}
-                      </td>
-                      <td>
-                        <button
-                          onClick={() => handleOpenTab(tab, { 
-                            connectionId: snapshot.connectionId,
-                            preferWindowId: snapshot.payload.windowId ?? undefined
-                          })}
-                          disabled={!tab.url || isSending}
-                        >
-                          Focus
-                        </button>
-                      </td>
-                    </tr>
+            (() => {
+              // Group tabs by windowId
+              const tabsByWindow = new Map<number, TabDescriptor[]>();
+              const orphanTabs: TabDescriptor[] = [];
+
+              for (const tab of snapshot.payload.tabs) {
+                if (tab.windowId != null) {
+                  const list = tabsByWindow.get(tab.windowId) ?? [];
+                  list.push(tab);
+                  tabsByWindow.set(tab.windowId, list);
+                } else {
+                  orphanTabs.push(tab);
+                }
+              }
+
+              // Sort windows by ID (or some other metric if available)
+              const sortedWindowIds = Array.from(tabsByWindow.keys()).sort((a, b) => a - b);
+
+              return (
+                <div className="window-groups">
+                  {sortedWindowIds.map((windowId) => (
+                    <div key={windowId} className="window-group" style={{ marginBottom: '1.5rem' }}>
+                      <h3 style={{ fontSize: '1rem', marginTop: 0, marginBottom: '0.5rem', opacity: 0.8 }}>
+                        Window #{windowId}
+                      </h3>
+                      <table className="tab-table">
+                        <thead>
+                          <tr>
+                            <th>Title</th>
+                            <th>URL</th>
+                            <th>Last Accessed</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tabsByWindow.get(windowId)?.map((tab) => (
+                            <tr key={`${tab.id ?? tab.url}`}>
+                              <td>{tab.title ?? "Untitled"}</td>
+                              <td className="tab-url">{tab.url ?? "n/a"}</td>
+                              <td>
+                                {tab.lastAccessed
+                                  ? new Date(tab.lastAccessed).toLocaleTimeString()
+                                  : "unknown"}
+                              </td>
+                              <td>
+                                <button
+                                  onClick={() => handleOpenTab(tab, { 
+                                    connectionId: snapshot.connectionId,
+                                    preferWindowId: windowId
+                                  })}
+                                  disabled={!tab.url || isSending}
+                                >
+                                  Focus
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                  
+                  {orphanTabs.length > 0 && (
+                    <div className="window-group">
+                      <h3 style={{ fontSize: '1rem', marginTop: 0, marginBottom: '0.5rem', opacity: 0.8 }}>
+                        Other Tabs
+                      </h3>
+                      <table className="tab-table">
+                        <thead>
+                          <tr>
+                            <th>Title</th>
+                            <th>URL</th>
+                            <th>Last Accessed</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {orphanTabs.map((tab) => (
+                            <tr key={`${tab.id ?? tab.url}`}>
+                              <td>{tab.title ?? "Untitled"}</td>
+                              <td className="tab-url">{tab.url ?? "n/a"}</td>
+                              <td>
+                                {tab.lastAccessed
+                                  ? new Date(tab.lastAccessed).toLocaleTimeString()
+                                  : "unknown"}
+                              </td>
+                              <td>
+                                <button
+                                  onClick={() => handleOpenTab(tab, { 
+                                    connectionId: snapshot.connectionId
+                                  })}
+                                  disabled={!tab.url || isSending}
+                                >
+                                  Focus
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()
             )}
           </section>
         ))
