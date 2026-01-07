@@ -29,6 +29,7 @@ fn get_debug_port() -> u16 {
 type ConnectionId = String;
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct ConnectionMeta {
   id: ConnectionId,
   browser: Option<String>,
@@ -316,6 +317,7 @@ impl BridgeHandle {
     Ok(())
   }
 
+  #[allow(dead_code)]
   pub fn get_connections(&self) -> Vec<(String, Option<String>)> {
     let connections = self.connections.lock().unwrap();
     connections

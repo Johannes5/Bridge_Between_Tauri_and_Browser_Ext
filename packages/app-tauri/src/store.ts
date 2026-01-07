@@ -59,9 +59,15 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
     logEntries: [entry, ...state.logEntries].slice(0, 50) 
   })),
 
-  setPresence: (update) => set((state) => ({
-    presence: { ...state.presence, ...update }
-  })),
+  setPresence: (update) => set((state) => {
+    // Filter out undefined values to prevent overwriting existing state with undefined
+    const cleanUpdate = Object.fromEntries(
+      Object.entries(update).filter(([_, v]) => v !== undefined)
+    );
+    return {
+      presence: { ...state.presence, ...cleanUpdate }
+    };
+  }),
 
   updateBrowserSnapshot: (connectionId, browser, payload) => set((state) => {
     const updated = new Map(state.browserTabs);
