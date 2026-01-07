@@ -15,6 +15,26 @@ import type { SavedTabCollection } from "./types";
 
 const randomId = () => `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 
+import { Toaster, toast } from 'sonner';
+import { ErrorBoundary } from 'react-error-boundary';
+
+function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+  return (
+    <div className="p-8 text-center text-red-500 bg-gray-900 min-h-screen flex flex-col items-center justify-center">
+      <h2 className="text-2xl font-bold mb-4">Something went wrong</h2>
+      <pre className="text-sm bg-gray-800 p-4 rounded mb-4 overflow-auto max-w-2xl">
+        {error.message}
+      </pre>
+      <button 
+        onClick={resetErrorBoundary}
+        className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 text-white transition-colors"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
 const App: React.FC = () => {
   // Select specific slices to avoid unnecessary re-renders
   const browserTabs = useBridgeStore((s) => s.browserTabs);
@@ -32,6 +52,13 @@ const App: React.FC = () => {
     loadSavedCollections,
     startListening,
   } = useBridgeStore();
+
+  // Show toast on global error
+  React.useEffect(() => {
+    if (error) {
+      toast.error(`Bridge Error: ${error}`);
+    }
+  }, [error]);
 
   // Initialize store hooks
   React.useEffect(() => {
@@ -81,6 +108,7 @@ const App: React.FC = () => {
       id: randomId(),
       type: "tabs.list.request"
     });
+    toast.info("Refreshed tabs");
   };
 
   const handleOpenTab = async (
@@ -103,6 +131,7 @@ const App: React.FC = () => {
     
     if (!targetConnectionId) {
       console.warn("[bridge-app] no browser connection available");
+      toast.warning("No browser connection available");
       return;
     }
 
@@ -115,20 +144,27 @@ const App: React.FC = () => {
 
     console.log("[bridge-app] Sending tabs.openOrFocus:", payload);
     
-    await sendEnvelope({
-      v: 1,
-      id: randomId(),
-      type: "tabs.openOrFocus",
-      payload: TabsOpenOrFocusPayloadSchema.parse(payload)
-    });
-    
-    // Refresh list after action
-    handleRequestTabs();
+    try {
+      await sendEnvelope({
+        v: 1,
+        id: randomId(),
+        type: "tabs.openOrFocus",
+        payload: TabsOpenOrFocusPayloadSchema.parse(payload)
+      });
+      // Refresh list after action
+      handleRequestTabs();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to open tab: ${message}`);
+    }
   };
 
   const handleOpenExample = async () => {
     const targetConnectionId = getDefaultConnectionId();
-    if (!targetConnectionId) return;
+    if (!targetConnectionId) {
+       toast.warning("No browser connection available");
+       return;
+    }
     
     await sendEnvelope({
       v: 1,
@@ -167,6 +203,7 @@ const App: React.FC = () => {
        ...payload,
        label: inferLabel(payload.tabs)
     });
+    toast.success("Saved tabs to collection");
   };
   
   const handleRestoreSavedCollection = async (entry: SavedTabCollection, suspend: boolean) => {
@@ -186,7 +223,10 @@ const App: React.FC = () => {
         targetConnectionId = getDefaultConnectionId();
       }
       
-      if (!targetConnectionId) return;
+      if (!targetConnectionId) {
+        toast.error("Original browser not found, and no default available.");
+        return;
+      }
       
       await sendEnvelope({
         v: 1,
@@ -200,6 +240,7 @@ const App: React.FC = () => {
           connectionId: targetConnectionId 
         }
       });
+      toast.success("Restored collection");
   };
 
   return (
@@ -240,12 +281,15 @@ const App: React.FC = () => {
 
         <BridgeLog entries={logEntries} />
       </div>
+      <Toaster position="bottom-right" theme="dark" />
     </div>
   );
 };
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );

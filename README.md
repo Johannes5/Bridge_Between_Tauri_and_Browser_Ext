@@ -1,6 +1,6 @@
 # Bridge Workspace
 
-Bridge Workspace is a three-part system—Tauri desktop app, Chromium extension, and Rust sidecar—that keeps browser state in sync with the desktop UI. Start here if you need to build, run, or troubleshoot the bridge on Windows.
+Bridge Workspace is a three-part system—Tauri desktop app, Chromium extension, and Rust sidecar—that keeps browser state in sync with the desktop UI. Start here if you need to build, run, or troubleshoot the bridge.
 
 ## Packages at a Glance
 | Package | Description | Filter name |
@@ -37,16 +37,15 @@ pnpm dev:app
 | Scenario | Steps |
 | --- | --- |
 | Fresh dev environment | 1) `pnpm setup` 2) `pnpm --filter @bridge/shared-proto build` 3) Run the extension and Tauri dev servers in separate terminals |
-| Update the sidecar binary | 1) **Close every browser using the extension** 2) `taskkill /IM bridge-sidecar.exe /F` until “process not found” 3) `pnpm --filter @bridge/sidecar build` 4) Copy `packages/sidecar/manifests/com.bridge.app.json` into each browser’s `NativeMessagingHosts` folder 5) Restart browsers and reload the extension |
-| Quick rebuild loop without closing browsers | 1) Set `$env:CARGO_TARGET_DIR="packages/sidecar/target-temp"` 2) `cargo build --manifest-path packages/sidecar/Cargo.toml --release` 3) Copy the new `bridge-sidecar.exe` into `packages/sidecar/target/release` after Chrome disconnects 4) Reload the extension |
-| Reset everything | 1) `pnpm --filter @bridge/shared-proto build` 2) `pnpm --filter ext-plasmo build` 3) `pnpm --filter mapmap-test-app build` 4) Rebuild the sidecar as above 5) Reload the extension and restart the Tauri app |
+| Update the sidecar binary | 1) **Close every browser using the extension** 2) Windows: `taskkill /IM bridge-sidecar.exe /F` / Unix: `pkill bridge-sidecar` 3) `pnpm --filter @bridge/sidecar build` 4) Copy manifest to `NativeMessagingHosts` if needed 5) Restart browsers |
+| Quick rebuild loop | 1) Set `CARGO_TARGET_DIR` to a temp path 2) `cargo build --manifest-path packages/sidecar/Cargo.toml --release` 3) Replace the binary in `packages/sidecar/target/release` 4) Reload extension |
+| Reset everything | 1) `pnpm --filter @bridge/shared-proto build` 2) `pnpm --filter ext-plasmo build` 3) `pnpm --filter mapmap-test-app build` 4) Rebuild sidecar 5) Reload |
 
 ### Closing Browsers vs. Killing the Sidecar
-- **Close browsers** whenever you plan to replace `bridge-sidecar.exe` directly; Chromium locks the executable while the native host is connected.
-- To terminate a stuck host without closing Chrome completely, run:  
-  ```powershell
-  taskkill /IM bridge-sidecar.exe /F
-  ```
+- **Close browsers** whenever you plan to replace the sidecar binary; Chromium locks the executable while the native host is connected (primarily on Windows).
+- To terminate a stuck host without closing Chrome completely:
+  - **Windows**: `taskkill /IM bridge-sidecar.exe /F`
+  - **macOS/Linux**: `pkill bridge-sidecar`
   Repeat until the process is gone, then rebuild and restart the extension to let Chrome spawn a fresh host.
 
 ## Debugging Checklist
