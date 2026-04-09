@@ -31,32 +31,20 @@ The sidecar in `packages/sidecar` connects the MV3 extension to the Tauri deskto
 
 ## Focus Handling (`src/focus.rs`)
 
-The sidecar calls `focus::focus_window(&FocusWindowPayload)` whenever it receives a `type: "focus.window"` envelope. The implementation:
+The sidecar calls `focus::focus_window(&FocusWindowPayload)` when it receives `type: "focus.window"` on **native messaging** (not forwarded to the WebSocket). The payload currently carries the **`hwnd`** chosen by the extension from the latest `windows.list` response.
 
-- Parses optional hints (`window_id`, `title`, `url`, `browser`, `connection_id`).
-- Uses a `Lazy<Mutex<HashMap<i32, isize>>>` cache to map Chrome `windowId` values to HWNDs. Invalid handles are discarded.
-- Enumerates visible top-level windows (`EnumWindows`) and scores candidates by matching process names (chrome.exe, msedge.exe, brave.exe, comet.exe, etc.) and partial title/url matches.
-- Runs the Win32 sequence:
+- **HWND cache** lives in the **extension** (`windowId` → native window info), built when `windows.list` arrives. Title ↔ window matching uses scored heuristics so each browser window maps to at most one HWND.
+- **`windows.list` enumeration**: PIDs include the browser process **and its descendants** (Toolhelp32). For Chromium-based executables, only top-level windows whose class name starts with `Chrome_WidgetWin_` are included.
+- **Focus routine**: `GetAncestor(..., GA_ROOT)` → `AttachThreadInput` → restore → topmost toggle → `BringWindowToTop` → `SetForegroundWindow` (failure logs `GetLastError`) → `SwitchToThisWindow`. Up to **three** attempts with **200 ms** delay if `GetForegroundWindow` does not match the target.
+- The **desktop app** calls `AllowSetForegroundWindow(ASFW_ANY)` when sending `tabs.openOrFocus` / `tabs.restore` so the user’s click grants a foreground token before the sidecar runs (see [../../../docs/troubleshooting/window-focus.md](../../../docs/troubleshooting/window-focus.md)).
 
-  ```rust
-  AllowSetForegroundWindow(ASFW_ANY);
-  AllowSetForegroundWindow(pid);
-  ShowWindow(hwnd, SW_RESTORE);
-  SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-  SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-  BringWindowToTop(hwnd);
-  SetForegroundWindow(hwnd);
-  ```
-
-The function logs start and end markers to stderr. Windows 10/11 still block the final foreground step (see [../../../docs/troubleshooting/window-focus.md](../../../docs/troubleshooting/window-focus.md) for the investigation).
+Diagnostics: set **`BRIDGE_FOCUS_DEBUG_CLASS=1`** on the sidecar process to log the resolved root HWND and window class on stderr.
 
 ## Open Questions
 
-1. Should we attach to the browser thread with `AttachThreadInput` before calling `SetForegroundWindow`?
-2. Are we always targeting the top-level `Chrome_WidgetWin_1` window, or do we sometimes hit a child HWND?
-3. Would `SwitchToThisWindow`, `ShowWindowAsync`, or simulated input (`SendInput`) help bypass focus protection?
-4. Can the extension cooperate by calling `AllowSetForegroundWindow` on its side before the sidecar runs the Win32 routine?
-5. Do we need a built-in file logger to avoid wrapper BAT scripts while keeping stdout clean?
+1. Do we need a built-in file logger to avoid wrapper BAT scripts while keeping stdout clean?
+2. Should we narrow `AllowSetForegroundWindow` to the sidecar PID instead of `ASFW_ANY` (requires the app to learn the sidecar PID)?
+3. Would `ShowWindowAsync` or simulated input (`SendInput`) help on machines that still block focus after the current sequence?
 
 ## Related Docs
 

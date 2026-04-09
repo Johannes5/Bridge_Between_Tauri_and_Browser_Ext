@@ -47,28 +47,22 @@ sequenceDiagram
     participant Browser as Browser Window
 
     User->>App: Click tab card or "Open"
+    App->>App: Windows: `AllowSetForegroundWindow(ASFW_ANY)` (input token from UI)
     App->>WS: `tabs.openOrFocus` (with connection fallback)
     WS->>NM: Forward envelope
     NM->>Ext: Native `postMessage`
     Ext->>Browser: Resolve target -> `chrome.windows.update(...focused)` -> `chrome.tabs.update(...active)`
-    Ext->>NM: Send `focus.window` (windowId, title, url, browser, connectionId)
-    NM->>WS: Forward for logging
-    NM->>Browser: Run Win32 focus routine
-    Browser-->>User: Tab activated, but window often remains background (current bug)
+    Ext->>NM: `focus.window` with cached `hwnd`
+    Note over NM: Consumed on native stdin; not forwarded over WebSocket
+    NM->>Browser: Win32 focus (`GetAncestor` root, retries, `SetForegroundWindow`)
+    Browser-->>User: Tab activated; window should come forward when OS allows it
 ```
 
-The new `focus.window` message powers the Win32 foreground routine in `packages/sidecar/src/focus.rs`. Logs confirm the routine runs, yet Windows 10/11 still prevent true foreground activation.
+Details: [docs/troubleshooting/window-focus.md](./troubleshooting/window-focus.md).
 
-## Why Foregrounding Still Fails
+## Foreground handling (Windows)
 
-The sidecar currently performs these steps:
-
-1. Call `AllowSetForegroundWindow` for `ASFW_ANY` and the browser PID.
-2. Restore minimized windows with `ShowWindow(SW_RESTORE)`.
-3. Toggle topmost state with `SetWindowPos` (TOPMOST then NOTOPMOST).
-4. Finish with `BringWindowToTop` and `SetForegroundWindow`.
-
-HWNDs are cached by `windowId` and recomputed via `EnumWindows` if necessary. Despite this, Windows focus-stealing heuristics still block the final foreground call when another application owns focus. Additional synchronization (thread attachment, simulated input, better window targeting, retries) is likely required.
+The **desktop app** calls `AllowSetForegroundWindow` when sending `tabs.openOrFocus` / `tabs.restore` so a user-driven action can unlock the next foreground change. The **sidecar** resolves the **root** HWND, uses **`AttachThreadInput`**, restore/topmost/`BringWindowToTop`/`SetForegroundWindow`, logs failures, and **retries** if `GetForegroundWindow` does not match. HWNDs come from **`windows.list`** (process tree + Chromium class filter) and are cached in the **extension** by `windowId`. OS policy, elevation mismatch, or security software can still block activation on some machines.
 
 ## Message Catalogue
 
@@ -77,7 +71,7 @@ HWNDs are cached by `windowId` and recomputed via `EnumWindows` if necessary. De
 | `presence.status` | Sidecar -> App | Track connected browsers (`connectionId`, `browser`) | App removes snapshots when the sidecar reports `sidecar: offline` |
 | `tabs.list` | Extension -> App | Stream tab and window snapshots | Includes inferred browser name and `connectionId` |
 | `tabs.openOrFocus` | App -> Extension | Activate or create a tab | App minimizes itself before sending to reduce flicker |
-| `focus.window` | Extension -> Sidecar | Ask Windows to foreground the browser window | Implemented on Windows only; still blocked by OS |
+| `focus.window` | Extension -> Sidecar (native messaging only) | Foreground browser via Win32 using cached `hwnd` | Windows: root HWND, retries, logging; may still fail under strict OS rules |
 | `tabs.restore` | App -> Extension | Re-open saved tab collections (suspend or eager) | Extension uses current snapshots to choose a target window |
 
 ## Related Documentation
