@@ -8,6 +8,7 @@ import {
 
 import { state } from "./background/state";
 import { postToNative } from "./background/connection";
+import { assignNativeWindowsToBrowserWindows } from "./background/windows";
 import { 
   sendCurrentWindowTabs, 
   saveAndCloseActiveWindow, 
@@ -93,16 +94,13 @@ const onFromNative = async (raw: unknown) => {
         if (listPayload.success) {
           state.windowInfoCache.clear();
           const allWindows = await chrome.windows.getAll();
-          for (const nativeWin of listPayload.data.windows) {
-            // Find the corresponding browser window by title match
-            const browserWin = allWindows.find((w) => 
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              nativeWin.title.includes((w as any).title ?? "")
-            );
-            if (browserWin?.id != null) {
-              state.windowInfoCache.set(browserWin.id, nativeWin);
-            }
-          }
+          const assigned = assignNativeWindowsToBrowserWindows(
+            listPayload.data.windows,
+            allWindows
+          );
+          assigned.forEach((native, windowId) => {
+            state.windowInfoCache.set(windowId, native);
+          });
           console.log("[bridge-ext] Updated window info cache:", state.windowInfoCache);
         } else {
           console.warn("[bridge-ext] Failed to parse windows.list payload", listPayload.error);
