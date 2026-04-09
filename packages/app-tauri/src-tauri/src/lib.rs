@@ -1,4 +1,5 @@
 mod bridge_ws;
+mod win_foreground;
 
 use bridge_ws::BridgeHandle;
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,14 @@ async fn test_command() -> Result<TestResponse, String> {
 
 #[tauri::command]
 async fn bridge_send(state: State<'_, BridgeState>, envelope: Value) -> Result<(), String> {
+    let msg_type = envelope
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+    if matches!(msg_type, "tabs.openOrFocus" | "tabs.restore") {
+        win_foreground::allow_set_foreground_from_foreground_process();
+    }
+
     let payload = serde_json::to_string(&envelope).map_err(|err| err.to_string())?;
     state
         .0
