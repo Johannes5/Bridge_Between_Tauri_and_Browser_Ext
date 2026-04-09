@@ -9,7 +9,18 @@ use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
+use std::collections::HashSet;
+#[cfg(target_os = "windows")]
+use std::thread;
+#[cfg(target_os = "windows")]
+use std::time::Duration;
+
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{CloseHandle, GetLastError, BOOL, HWND, LPARAM};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 #[cfg(target_os = "windows")]
@@ -18,10 +29,10 @@ use windows::Win32::System::Threading::{
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetForegroundWindow, SetWindowPos,
-    ShowWindow, SwitchToThisWindow, ASFW_ANY, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
-    SW_RESTORE,
+    AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW,
+    GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
+    IsWindowVisible, SetForegroundWindow, SetWindowPos, ShowWindow, SwitchToThisWindow, ASFW_ANY,
+    GA_ROOT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE,
 };
 
 #[derive(Debug, Deserialize)]
@@ -158,14 +169,62 @@ fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
         return Err(anyhow!("Invalid HWND received: {}", hwnd_val));
     }
 
-    bring_window_to_front(hwnd)?;
+    let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+    let target = if root.0 != 0 {
+        root
+    } else {
+        hwnd
+    };
+
+    if std::env::var("BRIDGE_FOCUS_DEBUG_CLASS").ok().as_deref() == Some("1") {
+        let cls = window_class_name(target);
+        eprintln!(
+            "[sidecar] focus debug: raw_hwnd=0x{:x} root_hwnd=0x{:x} class={:?}",
+            hwnd_val,
+            target.0,
+            cls
+        );
+    }
+
+    const ATTEMPTS: u32 = 3;
+    const PAUSE_MS: u64 = 200;
+
+    for attempt in 1..=ATTEMPTS {
+        bring_window_to_front_attempt(target, attempt)?;
+
+        let fg = unsafe { GetForegroundWindow() };
+        if fg.0 == target.0 {
+            eprintln!(
+                "[sidecar] foreground matches target 0x{:x} after attempt {}/{}",
+                target.0, attempt, ATTEMPTS
+            );
+            return Ok(());
+        }
+
+        eprintln!(
+            "[sidecar] foreground mismatch: have 0x{:x} want 0x{:x} (attempt {}/{})",
+            fg.0,
+            target.0,
+            attempt,
+            ATTEMPTS
+        );
+
+        if attempt < ATTEMPTS {
+            thread::sleep(Duration::from_millis(PAUSE_MS));
+        }
+    }
+
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
 pub fn list_browser_windows(browser_pid: u32) -> Result<Vec<WindowInfo>> {
+    let allowed_pids = collect_descendant_pids(browser_pid);
+    let chromium_class_filter = browser_uses_chromium_top_level(browser_pid);
+
     let mut state = ListWindowsState {
-        browser_pid,
+        allowed_pids,
+        chromium_class_filter,
         windows: Vec::new(),
     };
 
@@ -180,8 +239,80 @@ pub fn list_browser_windows(browser_pid: u32) -> Result<Vec<WindowInfo>> {
 }
 
 #[cfg(target_os = "windows")]
-fn bring_window_to_front(hwnd: HWND) -> Result<()> {
-    eprintln!("[sidecar] bring_window_to_front hwnd={hwnd:?}");
+fn collect_descendant_pids(browser_root: u32) -> HashSet<u32> {
+    let mut pairs: Vec<(u32, u32)> = Vec::new();
+
+    unsafe {
+        let snap = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(h) => h,
+            Err(_) => return HashSet::from([browser_root]),
+        };
+
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snap, &mut entry).is_ok() {
+            loop {
+                pairs.push((entry.th32ProcessID, entry.th32ParentProcessID));
+                if Process32NextW(snap, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snap);
+    }
+
+    let mut allowed = HashSet::new();
+    allowed.insert(browser_root);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for &(pid, parent) in &pairs {
+            if allowed.contains(&parent) && allowed.insert(pid) {
+                changed = true;
+            }
+        }
+    }
+
+    allowed
+}
+
+#[cfg(target_os = "windows")]
+fn browser_uses_chromium_top_level(browser_pid: u32) -> bool {
+    get_process_name(browser_pid)
+        .map(|n| {
+            n.contains("chrome")
+                || n.contains("msedge")
+                || n.contains("brave")
+                || n.contains("comet")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn window_class_name(hwnd: HWND) -> String {
+    unsafe {
+        let mut buf = [0u16; 256];
+        let n = GetClassNameW(hwnd, &mut buf) as usize;
+        if n == 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buf[..n])
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_chromium_top_level_frame(hwnd: HWND) -> bool {
+    let cls = window_class_name(hwnd);
+    cls.starts_with("Chrome_WidgetWin_")
+}
+
+#[cfg(target_os = "windows")]
+fn bring_window_to_front_attempt(hwnd: HWND, attempt: u32) -> Result<()> {
+    eprintln!(
+        "[sidecar] bring_window_to_front_attempt hwnd={hwnd:?} attempt={attempt}"
+    );
 
     unsafe {
         let browser_thread_id = GetWindowThreadProcessId(hwnd, None);
@@ -204,7 +335,16 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
         );
 
         let _ = BringWindowToTop(hwnd);
-        let _ = SetForegroundWindow(hwnd);
+
+        let sfw_ok = SetForegroundWindow(hwnd);
+        if !sfw_ok.as_bool() {
+            let err = GetLastError().0;
+            eprintln!(
+                "[sidecar] SetForegroundWindow returned false, GetLastError=0x{:x} (attempt {})",
+                err, attempt
+            );
+        }
+
         SwitchToThisWindow(hwnd, true);
 
         if attached {
@@ -212,13 +352,13 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
         }
     }
 
-    eprintln!("[sidecar] bring_window_to_front completed for hwnd={hwnd:?}");
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
 struct ListWindowsState {
-    browser_pid: u32,
+    allowed_pids: HashSet<u32>,
+    chromium_class_filter: bool,
     windows: Vec<WindowInfo>,
 }
 
@@ -233,7 +373,11 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
     let mut pid = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut pid));
 
-    if pid != state.browser_pid {
+    if !state.allowed_pids.contains(&pid) {
+        return BOOL(1);
+    }
+
+    if state.chromium_class_filter && !is_chromium_top_level_frame(hwnd) {
         return BOOL(1);
     }
 
