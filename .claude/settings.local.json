@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(ssh root@203.161.56.65 \"echo connected && hostname && cat /etc/os-release | head -5\")"
+    ]
+  }
+}
