@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
-
+use log::{error, info};
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
 #[cfg(target_os = "windows")]
@@ -14,7 +14,7 @@ use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 #[cfg(target_os = "windows")]
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, BringWindowToTop, EnumWindows,
@@ -22,7 +22,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
     SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, ASFW_ANY,
 };
-
+#[cfg(target_os = "windows")]
+use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameA};
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::HMODULE;
+//TODO: figure out a better way to filter out the correct window to bring to front
 #[derive(Debug, Deserialize)]
 pub struct FocusWindowPayload {
     #[serde(rename = "windowId")]
@@ -53,7 +57,6 @@ static WINDOW_CACHE: Lazy<Mutex<HashMap<i32, isize>>> =
 
 #[cfg(target_os = "windows")]
 fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
-    eprintln!("[sidecar] focus_window_windows payload: {:?}", payload);
 
     let mut cache = WINDOW_CACHE
         .lock()
@@ -128,8 +131,6 @@ fn expected_process_names(browser: Option<&str>) -> Vec<String> {
         } else if lower.contains("comet") || lower.contains("perplexity") {
             result.push("comet.exe".to_string());
             result.push("chrome.exe".to_string());
-        } else {
-            result.push(format!("{lower}.exe"));
         }
     }
 
@@ -146,13 +147,11 @@ fn expected_process_names(browser: Option<&str>) -> Vec<String> {
             .map(|s| s.to_string()),
         );
     }
-
     result
 }
 
 #[cfg(target_os = "windows")]
 fn bring_window_to_front(hwnd: HWND) -> Result<()> {
-    eprintln!("[sidecar] bring_window_to_front hwnd=0x{:X}", hwnd.0 as usize);
 
     unsafe {
         let mut pid = 0;
@@ -185,7 +184,6 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
         let _ = SetForegroundWindow(hwnd);
     }
 
-    eprintln!("[sidecar] bring_window_to_front completed for hwnd=0x{:X}", hwnd.0 as usize);
     Ok(())
 }
 
@@ -200,7 +198,6 @@ struct SearchState {
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let state = &mut *(lparam.0 as *mut SearchState);
-
     if !IsWindow(hwnd).as_bool() || !IsWindowVisible(hwnd).as_bool() {
         return BOOL(1);
     }
@@ -209,8 +206,8 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 
     let mut pid = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut pid));
-
     if let Some(name) = get_process_name(pid) {
+
         if !state.process_names.is_empty()
             && !state
                 .process_names
@@ -253,19 +250,28 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 #[cfg(target_os = "windows")]
 fn get_process_name(pid: u32) -> Option<String> {
     unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).ok()?;
+        let mut hmod = HMODULE::default();
+        let mut lpcb_needed = 0;
+        let mut buffer = vec![0u8; 260];
+        match EnumProcessModules(handle, &mut hmod, 0, &mut lpcb_needed) {
+            Ok(_) => {
+                let len = GetModuleBaseNameA(handle, hmod, &mut buffer);
+                let _ = CloseHandle(handle);
+                if len == 0 {
+                    return None;
+                }
+                buffer.truncate(len as usize);
+            }
+            Err(e) => {
+                error!("EnumProcessModules error: {:?}", e);
+            }
 
-        let mut buffer = vec![0u16; 260];
-        let len = K32GetModuleBaseNameW(handle, None, &mut buffer) as usize;
-        let _ = CloseHandle(handle);
 
-        if len == 0 {
-            return None;
         }
-
-        buffer.truncate(len);
-        let name = OsString::from_wide(&buffer).to_string_lossy().to_string();
+        let name = OsString::from_encoded_bytes_unchecked(buffer).to_string_lossy().to_string();
         Some(name.to_lowercase())
     }
 }
+
 

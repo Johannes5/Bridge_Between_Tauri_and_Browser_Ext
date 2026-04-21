@@ -8,7 +8,8 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
-
+use log::info;
+use log::LevelFilter;
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
@@ -90,7 +91,7 @@ fn get_parent_process_name() -> Option<String> {
             || lower.contains("firefox.exe") {
             return Some(name);
         }
-        
+
         // Skip intermediate processes - keep looking up the tree
         if lower == "cmd.exe" 
             || lower == "conhost.exe" 
@@ -126,10 +127,11 @@ fn generate_connection_id() -> String {
 async fn main() -> Result<()> {
     let app_ws = env::var("APP_WS").unwrap_or_else(|_| DEFAULT_APP_WS.to_string());
     let connection_id = generate_connection_id();
+    let _ = simple_logging::log_to_file(format!(".\\log{}.txt", connection_id), LevelFilter::Info);
     let browser = detect_browser();
     
-    eprintln!("[sidecar] Connection ID: {}", connection_id);
-    eprintln!("[sidecar] Browser: {}", browser);
+    info!("[sidecar] Connection ID: {}", connection_id);
+    info!("[sidecar] Browser: {}", browser);
     
     let (to_app_tx, to_app_rx) = mpsc::channel::<String>(256);
     let (to_extension_tx, to_extension_rx) = mpsc::channel::<String>(256);
@@ -141,7 +143,7 @@ async fn main() -> Result<()> {
     let to_extension_tx_for_bridge = to_extension_tx.clone();
     let connection_id_for_bridge = connection_id.clone();
     let browser_for_bridge = browser.clone();
-    tokio::spawn(async move {
+    let app_task = tokio::spawn(async move {
         if let Err(err) = bridge_to_app(
             app_ws,
             to_app_rx,
@@ -150,12 +152,12 @@ async fn main() -> Result<()> {
             connection_id_for_bridge,
             browser_for_bridge
         ).await {
-            eprintln!("[sidecar] app bridge exited: {err:#}");
+            info!("[sidecar] app bridge exited: {err:#}");
         }
     });
 
     // Spawn debug WebSocket mirror in debug builds (optional in release via env toggle)
-    let debug_enabled = cfg!(debug_assertions) || env::var("SIDE_CAR_DEBUG_WS").map(|v| v == "1").unwrap_or(false);
+    let debug_enabled = cfg!(debug_assertions) || env::var("SIDE_CAR_DEBUG_WS").map(|v| v == "1").unwrap_or(true);
     if debug_enabled {
         let port = env::var("DEBUG_WS_PORT")
             .ok()
@@ -165,7 +167,7 @@ async fn main() -> Result<()> {
         let to_app_tx_for_debug = to_app_tx.clone();
         tokio::spawn(async move {
             if let Err(err) = spawn_debug_ws(port, hub_for_debug, to_app_tx_for_debug).await {
-                eprintln!("[sidecar] debug ws failed: {err:#}");
+                info!("[sidecar] debug ws failed: {err:#}");
             }
         });
     }
@@ -175,12 +177,12 @@ async fn main() -> Result<()> {
     let to_app_tx_for_stdin = to_app_tx.clone();
     let stdin_task = tokio::task::spawn_blocking(move || -> Result<()> {
         loop {
-            match read_native_message()? {
-                Some(msg) => {
+            match read_native_message() {
+                Ok(Some(msg)) => {
                     let handled = match handle_control_message(&msg) {
                         Ok(value) => value,
                         Err(err) => {
-                            eprintln!("[sidecar] control message error: {err:#}");
+                            info!("[sidecar] control message error: {err:#}");
                             false
                         }
                     };
@@ -192,10 +194,11 @@ async fn main() -> Result<()> {
                     }
 
                     if to_app_tx_for_stdin.blocking_send(msg).is_err() {
-                        break;
+                        continue;
                     }
                 }
-                None => break,
+                Ok(None) => break,
+                Err(e) => info!("[sidecar] error while reading native message: {e:#}"),
             }
         }
         Ok(())
@@ -209,11 +212,11 @@ async fn main() -> Result<()> {
             match tokio::task::spawn_blocking(move || write_native_message(&msg_clone)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(err)) => {
-                    eprintln!("[sidecar] stdout write failed: {err:#}");
+                    info!("[sidecar] stdout write failed: {err:#}");
                     break;
                 }
                 Err(err) => {
-                    eprintln!("[sidecar] stdout writer panicked: {err:#?}");
+                    info!("[sidecar] stdout writer panicked: {err:#?}");
                     break;
                 }
             }
@@ -222,14 +225,14 @@ async fn main() -> Result<()> {
     });
 
     if let Err(err) = stdin_task.await? {
-        eprintln!("[sidecar] stdin reader error: {err:#}");
+        info!("[sidecar] stdin reader error: {err:#}");
     }
 
     drop(to_app_tx);
     drop(to_extension_tx);
 
-    let _ = stdout_task.await;
-
+    drop(stdout_task);
+    drop(app_task);
     Ok(())
 }
 
@@ -263,7 +266,7 @@ async fn bridge_to_app(
                 
                 // Send presence to the Tauri app immediately after connection
                 if write.send(Message::Text(presence_msg)).await.is_err() {
-                    eprintln!("[sidecar] Failed to send presence message to app");
+                    info!("[sidecar] Failed to send presence message to app");
                     continue;
                 }
 
@@ -334,7 +337,7 @@ async fn bridge_to_app(
                                     // tungstenite internal frame; ignore
                                 }
                                 Some(Err(err)) => {
-                                    eprintln!("[sidecar] app ws error: {err:#}");
+                                    info!("[sidecar] app ws error: {err:#}");
                                     break;
                                 }
                                 None => break,
@@ -344,7 +347,7 @@ async fn bridge_to_app(
                 }
             }
             Err(err) => {
-                eprintln!("[sidecar] unable to connect to app ws {app_ws}: {err:#}");
+                info!("[sidecar] unable to connect to app ws {app_ws}: {err:#}");
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
@@ -352,7 +355,7 @@ async fn bridge_to_app(
 }
 
 fn handle_control_message(message: &str) -> Result<bool> {
-    let value: serde_json::Value = match serde_json::from_str(message) {
+        let value: serde_json::Value = match serde_json::from_str(message) {
         Ok(val) => val,
         Err(_) => return Ok(false),
     };
@@ -368,13 +371,12 @@ fn handle_control_message(message: &str) -> Result<bool> {
     if let Some(payload_value) = value.get("payload") {
         match serde_json::from_value::<focus::FocusWindowPayload>(payload_value.clone()) {
             Ok(payload) => {
-                println!("[sidecar] focus.window request: {payload:?}");
                 if let Err(err) = focus::focus_window(&payload) {
-                    eprintln!("[sidecar] focus.window failed: {err:#}");
+                    info!("[sidecar] focus.window failed: {err:#}");
                 }
             }
             Err(err) => {
-                eprintln!("[sidecar] focus.window payload parse error: {err:#}");
+                info!("[sidecar] focus.window payload parse error: {err:#}");
             }
         }
     }
@@ -458,7 +460,7 @@ async fn spawn_debug_ws(port: u16, hub: DebugHub, to_app_tx: mpsc::Sender<String
                             }
                             Some(Ok(Message::Frame(_))) => { /* ignore */ }
                             Some(Err(err)) => {
-                                eprintln!("[sidecar] debug ws client error: {err:#}");
+                                info!("[sidecar] debug ws client error: {err:#}");
                                 break;
                             }
                             None => break,
@@ -498,8 +500,14 @@ fn read_native_message() -> Result<Option<String>> {
             stdin.read_exact(&mut buf)?;
             Ok(Some(String::from_utf8(buf)?))
         }
-        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
-        Err(err) => Err(err).context("reading native message length"),
+        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
+            info!("unexpedted eof native read");
+            Ok(None)
+        },
+        Err(err) => {
+            info!("err native read {:?}", err);
+            Err(err).context("reading native message length")
+        },
     }
 }
 
