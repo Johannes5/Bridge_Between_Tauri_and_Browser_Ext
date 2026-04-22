@@ -19,7 +19,7 @@ jobs:
           node-version: 24
       - name: Build
         run: |
-          npm ci
+          npm install
           npm run build:ext
       - name: Upload & release
         uses: mnao305/chrome-extension-upload@v6.0.0
