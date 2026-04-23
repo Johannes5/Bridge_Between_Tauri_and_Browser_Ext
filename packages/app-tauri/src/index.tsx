@@ -13,7 +13,7 @@ import {
   type TabsListPayload,
   type TabDescriptor,
   type TabsSavedPayload
-} from "@bridge/shared-proto";
+} from "shared-proto";
 import "./index.css";
 
 type PresenceState = {
