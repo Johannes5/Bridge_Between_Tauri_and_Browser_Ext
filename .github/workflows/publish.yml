@@ -100,12 +100,7 @@ jobs:
       - name: Install frontend dependencies
         run: yarn install
       - name: Build and publish sidecar
-        uses: rust-build/rust-build.action@v1.4.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          RUSTTARGET: ${{ matrix.target }}
-          SRC_DIR: "packages/sidecar"
+        run: cargo build --release --manifest-path packages/sidecar/Cargo.toml
       - name: Build and publish with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
