@@ -20,6 +20,7 @@ jobs:
       - name: Build
         run: |
           yarn install
+          yarn run build:proto
           yarn run build:ext
       - name: Upload & release
         uses: mnao305/chrome-extension-upload@v6.0.0
@@ -98,8 +99,16 @@ jobs:
 
       - name: Install frontend dependencies
         run: yarn install
+      - name: Build shared library
+        run: yarn run build:proto
       - name: Build and publish sidecar
         run: cargo build --release --manifest-path packages/sidecar/Cargo.toml
+      - name: Upload built sidecar artifacts
+        uses: actions/upload-artifact@v4
+        with:
+         name: sidecar-build-${{ matrix.platform }}
+         path: packages/sidecar/target/release/bridge-sidecar*
+
       - name: Build and publish with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -120,8 +129,3 @@ jobs:
           name: tauri-build-${{ matrix.platform }}
           path: packages/app-tauri/src-tauri/target/release/bundle/
 
-      - name: Upload built sidecar artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sidecar-build-${{ matrix.platform }}
-          path: packages/sidecar/target/release/bridge-sidecar*
