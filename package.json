@@ -2,17 +2,13 @@
   "name": "bridge-workspace",
   "version": "0.0.1",
   "private": true,
-  "packageManager": "pnpm@9.12.0",
+  "workspaces": ["packages/*"],
   "scripts": {
-    "setup": "pnpm -r install",
-    "build:proto": "pnpm --filter @bridge/shared-proto build",
-    "dev:app": "pnpm --filter ./packages/app-tauri tauri dev",
-    "dev:ext": "pnpm --filter ./packages/ext-plasmo run dev",
-    "build:ext": "pnpm --filter ./packages/ext-plasmo run build",
-    "typecheck": "pnpm -r run type-check",
-    "lint": "pnpm -r run lint",
-    "test:bridge": "TS_NODE_TRANSPILE_ONLY=1 ts-node --esm tools/tester.ts",
-    "mcp:runner": "ts-node --esm tools/mcp-runner.ts"
+    "setup": "yarn install",
+    "build:proto": "yarn workspace shared-proto build",
+    "dev:app": "yarn workspace mapmap-test-app tauri dev",
+    "dev:ext": "yarn workspace shortstop run dev",
+    "build:ext": "yarn workspace shortstop run build && yarn workspace shortstop run package "
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.20.1",

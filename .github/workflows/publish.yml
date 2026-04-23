@@ -19,12 +19,12 @@ jobs:
           node-version: 24
       - name: Build
         run: |
-          npm install
-          npm run build:ext
+          yarn install
+          yarn run build:ext
       - name: Upload & release
         uses: mnao305/chrome-extension-upload@v6.0.0
         with:
-          file-path: dist/file.zip
+          file-path: packages/ext-plasmo/build/chrome-mv3-prod.zip
           extension-id: hogefuga(extension id)
           client-id: ${{ secrets.CLIENT_ID }}
           client-secret: ${{ secrets.CLIENT_SECRET }}
@@ -98,12 +98,14 @@ jobs:
             libxdo-dev 
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: yarn install
       - name: Build and publish sidecar
-        uses: taiki-e/upload-rust-binary-action@v1
+        uses: rust-build/rust-build.action@v1.4.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          bin: "bridge-sidecar"
-          target: ${{ matrix.target }}
+          RUSTTARGET: ${{ matrix.target }}
+          SRC_DIR: "packages/sidecar"
       - name: Build and publish with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -115,7 +117,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           projectPath: './packages/app-tauri'
-          tauriScript: 'pnpm'
+          tauriScript: 'yarn'
           args: ${{ matrix.args }}
 
       - name: Upload built artifacts

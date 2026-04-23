@@ -1,7 +1,6 @@
 {
   "name": "mapmap-test-app",
   "version": "0.1.0",
-  "private": true,
   "description": "Minimal Tauri test environment for MapMap",
   "scripts": {
     "dev": "cross-env NODE_ENV=development rspack dev",
@@ -13,7 +12,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@bridge/shared-proto": "workspace:*",
+    "shared-proto": "*",
     "@tauri-apps/api": "^2.2.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.2.0",
     "@tauri-apps/plugin-dialog": "^2.0.1",

@@ -1,4 +1,4 @@
-import type { TabsOpenOrFocusPayload } from "@bridge/shared-proto";
+import type { TabsOpenOrFocusPayload } from "shared-proto";
 import {
   EnvelopeSchema,
   TabsListPayloadSchema,
@@ -7,7 +7,7 @@ import {
   TabsRestorePayloadSchema,
   PresenceStatusPayloadSchema,
   FocusWindowPayloadSchema
-} from "@bridge/shared-proto";
+} from "shared-proto";
 
 const HOST_NAME = "com.bridge.app";
 const DEV = process.env.NODE_ENV !== "production";
