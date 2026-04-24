@@ -73,16 +73,13 @@ impl SidecarConfig {
                 config_dir.join("Comet/NativeMessagingHosts"),
             ]
         } else if cfg!(windows) {
-            let config_dir = dirs::config_dir()
+            let config_dir = dirs::config_local_dir()
                 .context("no config dir")?;
             // Windows: registry, but we can use a file in the user's Chrome data
-            dirs::config_dir()
-                .context("no config dir")?
-                .join("Google/Chrome/NativeMessagingHosts");
             vec![
-                config_dir.join("Google/Chrome/NativeMessagingHosts"),
-                config_dir.join("BraveSoftware/Brave-Browser/NativeMessagingHosts"),
-                config_dir.join("Perplexity/Comet/NativeMessagingHosts"),
+                config_dir.join("Google\\Chrome\\User Data\\NativeMessagingHosts"),
+                config_dir.join("BraveSoftware\\Brave-Browser\\User Data\\NativeMessagingHosts"),
+                config_dir.join("Perplexity\\Comet\\User Data\\NativeMessagingHosts"),
             ]
         } else {
             anyhow::bail!("unsupported OS for native messaging manifest");
@@ -211,9 +208,11 @@ async fn download_and_replace(url: &str, target_path: &Path) -> Result<()> {
 /// Create or update the Chrome native messaging host manifest.
 fn write_native_manifest(config: &SidecarConfig, binary_path: &Path) -> Result<()> {
     for manifest_path in config.manifest_paths()? {
-        if let Some(parent) = manifest_path.parent() {
-            std::fs::create_dir_all(parent)?;
+        if let Err(e) = std::fs::create_dir_all(manifest_path.clone()) {
+            println!("native host path already exists {}", e);
         }
+        let manifest_file = manifest_path.join(format!("{}.json", config.manifest_name));
+        println!("writing manifest {}", manifest_file.display());
 
         let manifest = serde_json::json!({
         "name": config.manifest_name,
@@ -226,7 +225,7 @@ fn write_native_manifest(config: &SidecarConfig, binary_path: &Path) -> Result<(
     });
 
         let content = serde_json::to_string_pretty(&manifest)?;
-        std::fs::write(manifest_path, content)?;
+        std::fs::write(manifest_file, content)?;
     }
 
 
