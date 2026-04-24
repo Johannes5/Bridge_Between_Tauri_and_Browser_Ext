@@ -25,6 +25,7 @@ jobs:
       - name: Upload & release
         uses: actions/upload-artifact@v4
         with:
+          name: bridge-extension
           path: 'packages/ext-plasmo/build/chrome-mv3-prod.zip'
 
   publish-app:
