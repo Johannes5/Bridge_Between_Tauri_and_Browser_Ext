@@ -81,7 +81,7 @@ pub fn run() {
         github_repo: "Johannes5/Bridge_Between_Tauri_and_Browser_Ext".into(),
         manifest_name: "com.bridge.app".into(),
         manifest_description: "Bridge between extension and Tauri app".into(),
-        extension_id: "11111111111111111111111111111111111111111111111".into()
+        extension_id: "momjmbcjajimlenhcfhgnofebpfgkegh".into()
     };
     let manager = SidecarManager::new(config);
     let builder = tauri::Builder::default()

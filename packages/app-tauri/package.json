@@ -4,10 +4,9 @@
   "description": "Minimal Tauri test environment for MapMap",
   "scripts": {
     "dev": "cross-env NODE_ENV=development rspack dev",
-    "build": "cross-env NODE_ENV=production rspack build",
+    "build": "tauri:build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit"
   },

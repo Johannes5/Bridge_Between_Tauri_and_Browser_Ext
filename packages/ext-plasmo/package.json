@@ -14,7 +14,8 @@
     "options_ui": {
       "page": "options.html",
       "open_in_tab": true
-    }
+    },
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuc9JPEwTekoBXvgY7wVZ4OPEdQxNt/YrKZqzDH+oMhY/XIAKYbA6qwbCfLPVtnKu8ys0C3rUWa9ua8oUK2epI04K6lZvgEo/dFYW1w1Wq2R0JQXnOuBDxy3BoRUmEG7LDWdAZ/FjfYbauTHW5gpY2xRzpRshclnpjm5E2hOngzzTZMez6puobjGynl6JOv+HD0LronUimBhOm+9JASWM1Pe/q67A5fYcjZ/M48K5wM4RFqw9DJguRHrzhPonZKVQnPN8/tTARZnlpP9XvjG7LGU9FWLocvX3mNVUR6hGuG1eisGh0AlVBlcUXUxqhCv8or9w9hFYjL8io3bHfjuzcwIDAQAB"
   },
   "author": "Plasmo Corp. <foss@plasmo.com>",
   "scripts": {

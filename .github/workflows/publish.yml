@@ -23,13 +23,10 @@ jobs:
           yarn run build:proto
           yarn run build:ext
       - name: Upload & release
-        uses: mnao305/chrome-extension-upload@v6.0.0
+        uses: actions/upload-artifact@v4
         with:
-          file-path: packages/ext-plasmo/build/chrome-mv3-prod.zip
-          extension-id: hogefuga(extension id)
-          client-id: ${{ secrets.CLIENT_ID }}
-          client-secret: ${{ secrets.CLIENT_SECRET }}
-          refresh-token: ${{ secrets.REFRESH_TOKEN }}
+          path: 'packages/ext-plasmo/build/chrome-mv3-prod.zip'
+
   publish-app:
     name: Build and Publish App
     permissions:
