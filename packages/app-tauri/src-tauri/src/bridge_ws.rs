@@ -99,7 +99,7 @@ async fn run_sidecar_listener(
           incoming = read.next() => {
             match incoming {
               Some(Ok(Message::Text(txt))) => {
-                eprintln!("[app] Received WebSocket message: {}", &txt[..txt.len().min(200)]);
+                eprintln!("[app] Received WebSocket message: {:?}", &txt[..txt.len().min(200)]);
                 
                 // Try to extract connection metadata from presence messages
                 if connection_id.is_none() {
