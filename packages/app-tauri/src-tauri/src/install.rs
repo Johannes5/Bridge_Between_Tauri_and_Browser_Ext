@@ -282,10 +282,7 @@ impl SidecarManager {
                 .context("sidecar not found in resources")?;
 
             #[cfg(unix)]
-            let resource_path = app_handle
-                .path()
-                .executable_dir()
-                .unwrap_or("/usr/bin".into());
+            let resource_path = Path::new("/usr/bin");
             println!("Resource path: {}", resource_path.display());
             std::fs::create_dir_all(target_path.parent().unwrap())?;
             std::fs::copy(&resource_path.join(self.config.binary_filename()), &target_path)?;
