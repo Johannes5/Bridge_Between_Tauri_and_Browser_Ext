@@ -7,7 +7,7 @@ import type { TabDescriptor } from "@bridge/shared-proto";
 describe("ActiveConnectionsList", () => {
   const mockTab: TabDescriptor = {
     id: 1,
-    url: "https://example.com",
+    url: "https://www.example.com/page",
     title: "Example Domain",
     windowId: 100,
     lastAccessed: Date.now(),
@@ -18,77 +18,83 @@ describe("ActiveConnectionsList", () => {
     connectionId: "conn-1",
     browser: "chrome",
     payload: {
-        tabs: [mockTab]
+      tabs: [mockTab]
     },
     lastUpdate: 1234567890
   };
 
-  it("renders empty state", () => {
+  const renderWith = (overrides: Partial<React.ComponentProps<typeof ActiveConnectionsList>> = {}) =>
     render(
-      <ActiveConnectionsList 
-        snapshots={[]} 
-        isSending={false} 
-        onSaveTabs={vi.fn()} 
-        onFocusTab={vi.fn()} 
+      <ActiveConnectionsList
+        snapshots={[mockSnapshot]}
+        isSending={false}
+        extensionStatus="online"
+        onSaveTabs={vi.fn()}
+        onFocusTab={vi.fn()}
+        {...overrides}
       />
     );
+
+  it("renders empty state", () => {
+    render(
+      <ActiveConnectionsList
+        snapshots={[]}
+        isSending={false}
+        extensionStatus="online"
+        onSaveTabs={vi.fn()}
+        onFocusTab={vi.fn()}
+      />
+    );
+    // Wait for initialization timer (skipped here because extensionStatus=online clears it immediately)
     expect(screen.getByText("Current Window Tabs")).toBeInTheDocument();
     expect(screen.getByText(/No browser connections yet/i)).toBeInTheDocument();
   });
 
-  it("renders connections", () => {
-    render(
-      <ActiveConnectionsList 
-        snapshots={[mockSnapshot]} 
-        isSending={false} 
-        onSaveTabs={vi.fn()} 
-        onFocusTab={vi.fn()} 
-      />
-    );
-    // ConnectionCard headers
+  it("renders connections with the new window-grouped layout", () => {
+    renderWith();
+
+    // Connection card header
     expect(screen.getByText("Current Tabs - chrome")).toBeInTheDocument();
-    
-    // Tab details
+
+    // Per-window header (1-based numbering, not raw windowId)
+    expect(screen.getByText("Window 1")).toBeInTheDocument();
+
+    // Tab title is rendered
     expect(screen.getByText("Example Domain")).toBeInTheDocument();
-    expect(screen.getByText("https://example.com")).toBeInTheDocument();
+
+    // Domain is shown instead of the full URL, with leading "www." stripped
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    expect(screen.queryByText("https://www.example.com/page")).not.toBeInTheDocument();
   });
 
-  it("calls onFocusTab when Focus button is clicked", () => {
+  it("focuses a tab when its row is clicked", () => {
     const handleFocus = vi.fn();
-    render(
-      <ActiveConnectionsList 
-        snapshots={[mockSnapshot]} 
-        isSending={false} 
-        onSaveTabs={vi.fn()} 
-        onFocusTab={handleFocus} 
-      />
-    );
+    renderWith({ onFocusTab: handleFocus });
 
-    const focusButton = screen.getByText("Focus");
-    fireEvent.click(focusButton);
+    const row = screen.getByRole("button", { name: /Focus tab Example Domain/i });
+    fireEvent.click(row);
     expect(handleFocus).toHaveBeenCalledWith(
-      mockTab, // It passes the tab object
+      mockTab,
       expect.objectContaining({ connectionId: "conn-1", preferWindowId: 100 })
     );
   });
 
-  it("calls onSaveTabs when Save Window button is clicked", () => {
+  it("calls onSaveTabs when Save Window is clicked", () => {
     const handleSave = vi.fn();
-    render(
-      <ActiveConnectionsList 
-        snapshots={[mockSnapshot]} 
-        isSending={false} 
-        onSaveTabs={handleSave} 
-        onFocusTab={vi.fn()} 
-      />
-    );
+    renderWith({ onSaveTabs: handleSave });
 
-    const saveButton = screen.getByText("Save Window");
-    fireEvent.click(saveButton);
+    fireEvent.click(screen.getByRole("button", { name: /Save Window/i }));
     expect(handleSave).toHaveBeenCalledWith(
       [mockTab],
       expect.objectContaining({ connectionId: "conn-1", windowId: 100 })
     );
   });
-});
 
+  it("does not focus the tab when the rename pen icon is clicked", () => {
+    const handleFocus = vi.fn();
+    renderWith({ onFocusTab: handleFocus });
+
+    fireEvent.click(screen.getByRole("button", { name: /Rename tab/i }));
+    expect(handleFocus).not.toHaveBeenCalled();
+  });
+});
