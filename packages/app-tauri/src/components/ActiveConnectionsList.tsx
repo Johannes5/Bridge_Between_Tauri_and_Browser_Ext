@@ -392,6 +392,7 @@ const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSe
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
       aria-label={`Focus tab ${tab.title ?? tab.url ?? "Untitled"}`}
+      title={tab.url ?? undefined}
       onClick={handleFocus}
       onKeyDown={handleKey}
       className={`group flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors ${
@@ -414,15 +415,11 @@ const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSe
         <Globe className="w-4 h-4 text-gray-500 shrink-0" aria-hidden="true" />
       )}
 
-      {domain && (
-        <span className="text-xs font-mono text-gray-500 shrink-0 max-w-[10rem] truncate">
-          {domain}
-        </span>
-      )}
-
-      <span className="text-sm text-gray-200 truncate" title={tab.title ?? undefined}>
-        {tab.title ?? "Untitled"}
+      <span className="text-xs font-mono text-gray-500 shrink-0 w-16 truncate">
+        {domain}
       </span>
+
+      <span className="text-sm text-gray-200 truncate">{tab.title ?? "Untitled"}</span>
 
       <div className="ml-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
         <span className="text-[10px] text-gray-500 font-mono">{formatTime(tab.lastAccessed)}</span>
