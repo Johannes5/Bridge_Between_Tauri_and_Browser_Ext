@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use semver::Version;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
-
+use windows_registry::*;
 #[derive(Clone)]
 pub struct SidecarConfig {
     /// Name of the sidecar binary without extension (e.g., "my_sidecar")
@@ -52,7 +52,6 @@ impl SidecarConfig {
             .context("failed to resolve app data dir")?;
         Ok(app_dir.join("sidecar").join(self.binary_filename()))
     }
-
     /// Path to the native messaging manifest JSON file.
     pub fn manifest_paths(&self) -> Result<Vec<PathBuf>> {
         let manifest_dirs = if cfg!(target_os = "macos") {
@@ -85,6 +84,18 @@ impl SidecarConfig {
             anyhow::bail!("unsupported OS for native messaging manifest");
         };
         Ok(manifest_dirs)
+    }
+
+    #[cfg(windows)]
+    pub fn registry_key_paths(&self) -> Result<Vec<(String, PathBuf)>> {
+        let config_dir = dirs::config_local_dir()
+            .context("no config dir")?;
+        Ok(vec![
+            ("Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts".into(), config_dir.join("BraveSoftware\\Brave-Browser\\User Data\\NativeMessagingHosts")),
+            ("Software\\Google\\Chrome\\NativeMessagingHosts".into(), config_dir.join("Google\\Chrome\\User Data\\NativeMessagingHosts")),
+            ("Software\\Perplexity\\Comet\\NativeMessagingHosts".into(), config_dir.join("Perplexity\\Comet\\User Data\\NativeMessagingHosts"))
+
+        ])
     }
 }
 #[derive(Debug, serde::Deserialize)]
@@ -232,6 +243,21 @@ fn write_native_manifest(config: &SidecarConfig, binary_path: &Path) -> Result<(
     Ok(())
 }
 
+#[cfg(windows)]
+fn write_registry_keys(config: &SidecarConfig) -> Result<()> {
+    for (reg_key, manifest_path) in config.registry_key_paths()? {
+        let manifest_key = format!("{}\\{}", reg_key, config.manifest_name);
+        println!("writing registry key for {}", manifest_key);
+        let manifest_path = manifest_path.join(format!("{}.json", config.manifest_name));
+
+        let current_user_key = CURRENT_USER.create(manifest_key.clone())?;
+        current_user_key.set_string("", manifest_path.to_string_lossy())?;
+
+    }
+
+    Ok(())
+}
+
 pub struct SidecarManager {
     config: SidecarConfig,
     updater: GitHubUpdater,
@@ -266,6 +292,10 @@ impl SidecarManager {
         }
         // Always update manifest in case path changed
         write_native_manifest(&self.config, &target_path)?;
+
+        #[cfg(windows)]
+        write_registry_keys(&self.config)?;
+
         println!("Manifest written");
         Ok(())
     }
@@ -297,7 +327,8 @@ impl SidecarManager {
 
         // Update manifest (path unchanged, but we may want to rewrite for consistency)
         write_native_manifest(&self.config, &binary_path)?;
-
+        #[cfg(windows)]
+        write_registry_keys(&self.config)?;
         Ok(Some(latest_version))
     }
 }
