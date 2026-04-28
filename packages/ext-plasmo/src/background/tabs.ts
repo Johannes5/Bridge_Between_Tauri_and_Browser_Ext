@@ -2,7 +2,7 @@ import {
   TabsListPayloadSchema,
   TabsSavedPayloadSchema,
   type TabsOpenOrFocusPayload
-} from "@bridge/shared-proto";
+} from "shared-proto";
 import { state } from "./state";
 import { postToNative } from "./connection";
 import { isValidUrl, serializeTab, coerceLastAccessed } from "./utils";

@@ -8,7 +8,8 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
-
+use log::{info, error};
+use log::LevelFilter;
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
@@ -82,13 +83,13 @@ fn detect_browser() -> String {
 #[cfg(target_os = "macos")]
 fn get_parent_process_name_macos() -> Option<String> {
     use sysinfo::{Pid, System};
-    
+
     let mut system = System::new();
     let current_pid = Pid::from(std::process::id() as usize);
-    
+
     // Refresh only the necessary process information
     system.refresh_processes();
-    
+
     // Find the current process
     if let Some(process) = system.process(current_pid) {
         if let Some(parent_pid) = process.parent() {
@@ -97,20 +98,20 @@ fn get_parent_process_name_macos() -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
 #[cfg(target_os = "linux")]
 fn get_parent_process_name_linux() -> Option<String> {
     use sysinfo::{Pid, System};
-    
+
     let mut system = System::new();
     let current_pid = Pid::from(std::process::id() as usize);
-    
+
     // Refresh only the necessary process information
     system.refresh_processes();
-    
+
     // Find the current process
     if let Some(process) = system.process(current_pid) {
         if let Some(parent_pid) = process.parent() {
@@ -119,7 +120,7 @@ fn get_parent_process_name_linux() -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
@@ -161,7 +162,7 @@ fn get_process_name_by_pid(pid: u32) -> Option<String> {
         let mut buffer = vec![0u16; 260];
         let len = K32GetModuleBaseNameW(handle, None, &mut buffer) as usize;
         if let Err(e) = CloseHandle(handle) {
-            eprintln!("[sidecar] Warning: Failed to close process handle: {:?}", e);
+            error!("[sidecar] Warning: Failed to close process handle: {:?}", e);
         }
         if len == 0 {
             return None;
@@ -185,10 +186,11 @@ fn generate_connection_id() -> String {
 async fn main() -> Result<()> {
     let app_ws = env::var("APP_WS").unwrap_or_else(|_| DEFAULT_APP_WS.to_string());
     let connection_id = generate_connection_id();
+    let _ = simple_logging::log_to_file(format!(".\\log{}.txt", connection_id), LevelFilter::Info);
     let browser = detect_browser();
 
-    eprintln!("[sidecar] Connection ID: {}", connection_id);
-    eprintln!("[sidecar] Browser: {}", browser);
+    info!("[sidecar] Connection ID: {}", connection_id);
+    info!("[sidecar] Browser: {}", browser);
 
     let (to_app_tx, to_app_rx) = mpsc::channel::<String>(256);
     let (to_extension_tx, to_extension_rx) = mpsc::channel::<String>(256);
@@ -207,11 +209,9 @@ async fn main() -> Result<()> {
             to_extension_tx_for_bridge,
             hub_for_bridge,
             connection_id_for_bridge,
-            browser_for_bridge,
-        )
-        .await
-        {
-            eprintln!("[sidecar] app bridge exited: {err:#}");
+            browser_for_bridge
+        ).await {
+            info!("[sidecar] app bridge exited: {err:#}");
         }
     });
 
@@ -227,7 +227,7 @@ async fn main() -> Result<()> {
         let to_app_tx_for_debug = to_app_tx.clone();
         tokio::spawn(async move {
             if let Err(err) = spawn_debug_ws(port, hub_for_debug, to_app_tx_for_debug).await {
-                eprintln!("[sidecar] debug ws failed: {err:#}");
+                info!("[sidecar] debug ws failed: {err:#}");
             }
         });
     }
@@ -248,7 +248,7 @@ async fn main() -> Result<()> {
                     ) {
                         Ok(value) => value,
                         Err(err) => {
-                            eprintln!("[sidecar] control message error: {err:#}");
+                            info!("[sidecar] control message error: {err:#}");
                             false
                         }
                     };
@@ -277,11 +277,11 @@ async fn main() -> Result<()> {
             match tokio::task::spawn_blocking(move || write_native_message(&msg_clone)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(err)) => {
-                    eprintln!("[sidecar] stdout write failed: {err:#}");
+                    info!("[sidecar] stdout write failed: {err:#}");
                     break;
                 }
                 Err(err) => {
-                    eprintln!("[sidecar] stdout writer panicked: {err:#?}");
+                    info!("[sidecar] stdout writer panicked: {err:#?}");
                     break;
                 }
             }
@@ -290,7 +290,7 @@ async fn main() -> Result<()> {
     });
 
     if let Err(err) = stdin_task.await? {
-        eprintln!("[sidecar] stdin reader error: {err:#}");
+        info!("[sidecar] stdin reader error: {err:#}");
     }
 
     drop(to_app_tx);
@@ -334,7 +334,7 @@ async fn bridge_to_app(
 
                 // Send presence to the Tauri app first - only notify extension if this succeeds
                 if write.send(Message::Text(presence_msg.clone())).await.is_err() {
-                    eprintln!("[sidecar] Failed to send presence message to app");
+                    info!("[sidecar] Failed to send presence message to app");
                     continue;
                 }
 
@@ -409,7 +409,7 @@ async fn bridge_to_app(
                                     // tungstenite internal frame; ignore
                                 }
                                 Some(Err(err)) => {
-                                    eprintln!("[sidecar] app ws error: {err:#}");
+                                    info!("[sidecar] app ws error: {err:#}");
                                     break;
                                 }
                                 None => break,
@@ -419,7 +419,7 @@ async fn bridge_to_app(
                 }
             }
             Err(err) => {
-                eprintln!("[sidecar] unable to connect to app ws {app_ws}: {err:#}, retrying in {:?}", retry_delay);
+                info!("[sidecar] unable to connect to app ws {app_ws}: {err:#}, retrying in {:?}", retry_delay);
                 tokio::time::sleep(retry_delay).await;
                 // Exponential backoff: double the delay up to max
                 retry_delay = (retry_delay * 2).min(max_retry_delay);
@@ -447,20 +447,20 @@ fn handle_control_message(
             if let Some(payload_value) = value.get("payload") {
                 match serde_json::from_value::<focus::FocusWindowPayload>(payload_value.clone()) {
                     Ok(payload) => {
-                        eprintln!("[sidecar] focus.window request: {payload:?}");
+                        error!("[sidecar] focus.window request: {payload:?}");
                         if let Err(err) = focus::focus_window(&payload) {
-                            eprintln!("[sidecar] focus.window failed: {err:#}");
+                            error!("[sidecar] focus.window failed: {err:#}");
                         }
                     }
                     Err(err) => {
-                        eprintln!("[sidecar] focus.window payload parse error: {err:#}");
+                        error!("[sidecar] focus.window payload parse error: {err:#}");
                     }
                 }
             }
             Ok(true)
         }
         "windows.list.request" => {
-            eprintln!("[sidecar] windows.list.request received");
+            error!("[sidecar] windows.list.request received");
 
             #[cfg(target_os = "windows")]
             {
@@ -477,15 +477,15 @@ fn handle_control_message(
                             });
                             let response_str = response.to_string();
                             if _to_extension_tx.blocking_send(response_str).is_err() {
-                                eprintln!("[sidecar] Failed to send windows.list to extension");
+                                error!("[sidecar] Failed to send windows.list to extension");
                             }
                         }
                         Err(err) => {
-                            eprintln!("[sidecar] Failed to list browser windows: {err:#}");
+                            error!("[sidecar] Failed to list browser windows: {err:#}");
                         }
                     }
                 } else {
-                    eprintln!("[sidecar] Could not determine parent PID for windows.list.request");
+                    error!("[sidecar] Could not determine parent PID for windows.list.request");
                 }
             }
 
@@ -571,7 +571,7 @@ async fn spawn_debug_ws(port: u16, hub: DebugHub, to_app_tx: mpsc::Sender<String
                             }
                             Some(Ok(Message::Frame(_))) => { /* ignore */ }
                             Some(Err(err)) => {
-                                eprintln!("[sidecar] debug ws client error: {err:#}");
+                                info!("[sidecar] debug ws client error: {err:#}");
                                 break;
                             }
                             None => break,
@@ -611,8 +611,14 @@ fn read_native_message() -> Result<Option<String>> {
             stdin.read_exact(&mut buf)?;
             Ok(Some(String::from_utf8(buf)?))
         }
-        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
-        Err(err) => Err(err).context("reading native message length"),
+        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
+            info!("unexpedted eof native read");
+            Ok(None)
+        },
+        Err(err) => {
+            info!("err native read {:?}", err);
+            Err(err).context("reading native message length")
+        },
     }
 }
 

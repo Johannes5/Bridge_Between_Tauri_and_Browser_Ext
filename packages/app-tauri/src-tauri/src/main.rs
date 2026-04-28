@@ -1,3 +1,3 @@
 fn main() {
-    mapmap_test_lib::run();
+    mapmap_test::run();
 }

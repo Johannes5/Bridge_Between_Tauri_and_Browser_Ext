@@ -10,7 +10,7 @@ import {
   type Envelope,
   type TabsListPayload,
   type TabsDeltaPayload,
-} from "@bridge/shared-proto";
+} from "shared-proto";
 import type { 
   PresenceState, 
   LogEntry, 

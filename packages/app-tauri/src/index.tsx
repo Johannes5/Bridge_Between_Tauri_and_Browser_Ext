@@ -2,8 +2,8 @@ import * as React from "react";
 import * as ReactDOM from "react-dom/client";
 import {
   TabsOpenOrFocusPayloadSchema,
-  type TabDescriptor
-} from "@bridge/shared-proto";
+  type TabDescriptor,
+} from "shared-proto";
 import "./index.css";
 
 import { PresenceCard } from "./components/PresenceCard";
@@ -25,7 +25,7 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
       <pre className="text-sm bg-gray-800 p-4 rounded mb-4 overflow-auto max-w-2xl">
         {error.message}
       </pre>
-      <button 
+      <button
         onClick={resetErrorBoundary}
         className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 text-white transition-colors"
       >
@@ -43,12 +43,12 @@ const App: React.FC = () => {
   const savedCollections = useBridgeStore((s) => s.savedCollections);
   const isSending = useBridgeStore((s) => s.isSending);
   const error = useBridgeStore((s) => s.error);
-  
-  const { 
-    sendEnvelope, 
-    addSavedCollection, 
-    removeSavedCollection, 
-    clearSavedCollections, 
+
+  const {
+    sendEnvelope,
+    addSavedCollection,
+    removeSavedCollection,
+    clearSavedCollections,
     loadSavedCollections,
     startListening,
   } = useBridgeStore();
@@ -64,7 +64,7 @@ const App: React.FC = () => {
   React.useEffect(() => {
     loadSavedCollections();
     const listenPromise = startListening();
-    
+
     // Initial bootstrap
     sendEnvelope({
       v: 1,
@@ -86,8 +86,8 @@ const App: React.FC = () => {
 
 
   // Derived state
-  const browserSnapshots = React.useMemo(() => 
-    Array.from(browserTabs.values()).sort((a, b) => 
+  const browserSnapshots = React.useMemo(() =>
+    Array.from(browserTabs.values()).sort((a, b) =>
       a.browser.localeCompare(b.browser)
     ), [browserTabs]);
 
@@ -128,7 +128,7 @@ const App: React.FC = () => {
     if (!targetConnectionId) {
       targetConnectionId = getDefaultConnectionId();
     }
-    
+
     if (!targetConnectionId) {
       console.warn("[bridge-app] no browser connection available");
       toast.warning("No browser connection available");
@@ -165,7 +165,7 @@ const App: React.FC = () => {
        toast.warning("No browser connection available");
        return;
     }
-    
+
     await sendEnvelope({
       v: 1,
       id: randomId(),
@@ -180,11 +180,11 @@ const App: React.FC = () => {
   };
 
   const handleSaveTabs = (
-    tabs: TabDescriptor[], 
-    meta: { 
-      browser: string; 
-      connectionId: string; 
-      windowId?: number | null 
+    tabs: TabDescriptor[],
+    meta: {
+      browser: string;
+      connectionId: string;
+      windowId?: number | null
     }
   ) => {
     const payload = {
@@ -198,18 +198,18 @@ const App: React.FC = () => {
       connectionId: meta.connectionId,
       label: null
     };
-    
+
     addSavedCollection({
        ...payload,
        label: inferLabel(payload.tabs)
     });
     toast.success("Saved tabs to collection");
   };
-  
+
   const handleRestoreSavedCollection = async (entry: SavedTabCollection, suspend: boolean) => {
       const urls = entry.tabs.map((t) => t.url).filter((v): v is string => typeof v === "string");
       if (urls.length === 0) return;
-      
+
       let targetConnectionId = entry.connectionId;
       if (targetConnectionId && !browserTabs.has(targetConnectionId)) {
         targetConnectionId = undefined;
@@ -232,12 +232,12 @@ const App: React.FC = () => {
         v: 1,
         id: randomId(),
         type: "tabs.restore",
-        payload: { 
-          urls, 
-          newWindow: true, 
-          focused: true, 
-          suspend, 
-          connectionId: targetConnectionId 
+        payload: {
+          urls,
+          newWindow: true,
+          focused: true,
+          suspend,
+          connectionId: targetConnectionId
         }
       });
       toast.success("Restored collection");

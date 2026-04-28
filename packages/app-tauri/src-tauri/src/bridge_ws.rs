@@ -65,7 +65,7 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
 
   let debug_enabled =
     cfg!(debug_assertions) || env::var("BRIDGE_DEBUG_WS").map(|v| v == "1").unwrap_or(false);
-  
+
   if debug_enabled {
     let hub_for_debug = hub.clone();
     let connections_for_debug = connections.clone();
@@ -90,7 +90,7 @@ async fn run_sidecar_listener(
   let listener = TcpListener::bind(("127.0.0.1", port))
     .await
     .with_context(|| format!("binding app ws on 127.0.0.1:{port}"))?;
-  
+
   info!("[app] Sidecar listener running on 127.0.0.1:{}", port);
 
   loop {
@@ -127,7 +127,7 @@ async fn run_sidecar_listener(
             "type": "presence.query",
             "payload": { "requester": "bridge-host" }
         }).to_string();
-        
+
         if let Err(e) = to_sidecar_tx.send(handshake).await {
              warn!("[app] Failed to send handshake to {}: {}", temp_id, e);
         }
@@ -144,7 +144,7 @@ async fn run_sidecar_listener(
           incoming = read.next() => {
             match incoming {
               Some(Ok(Message::Text(txt))) => {
-                debug!("[app] Received WebSocket message: {:.200}", txt);
+                eprintln!("[app] Received WebSocket message: of len {:?}", txt.len());
                 
                 // Check for presence update to promote connection
                 if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
@@ -153,15 +153,15 @@ async fn run_sidecar_listener(
                       if let Some(real_conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
                         let new_id = real_conn_id.to_string();
                         let new_browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
-                        
+
                         // Promote if ID changed or just updating metadata
                         let current_id = connection_id.as_ref().unwrap(); // We always have a temp ID at least
-                        
+
                         if current_id != &new_id {
                            let mut map = connections_clone.write().await;
                            // Remove old ID
                            map.remove(current_id);
-                           
+
                            // Insert new ID
                            map.insert(
                              new_id.clone(),
@@ -171,7 +171,7 @@ async fn run_sidecar_listener(
                                sender: to_sidecar_tx.clone(),
                              },
                            );
-                           
+
                            info!("[app] Connection promoted: {} -> {} ({:?})", current_id, new_id, new_browser);
                            connection_id = Some(new_id);
                            browser = new_browser;

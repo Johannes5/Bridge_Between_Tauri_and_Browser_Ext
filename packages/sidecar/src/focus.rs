@@ -1,8 +1,9 @@
-use anyhow::{anyhow, Result};
-#[cfg(target_os = "windows")]
-use anyhow::Context;
+use anyhow::{anyhow, Context, Result};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-
+use std::collections::HashMap;
+use std::sync::Mutex;
+use log::{info, error};
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
 #[cfg(target_os = "windows")]
@@ -14,8 +15,9 @@ use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
 use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::{
-    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ
 };
+
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetWindowTextLengthW, GetWindowTextW,
@@ -23,7 +25,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ShowWindow, SwitchToThisWindow, ASFW_ANY, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
     SW_RESTORE,
 };
-
+#[cfg(target_os = "windows")]
+use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameA};
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::HMODULE;
+//TODO: figure out a better way to filter out the correct window to bring to front
 #[derive(Debug, Deserialize)]
 pub struct FocusWindowPayload {
     #[allow(dead_code)]
@@ -78,16 +84,16 @@ fn focus_window_linux(payload: &FocusWindowPayload) -> Result<()> {
         match output {
             Ok(out) => {
                 if !out.status.success() {
-                    eprintln!("[sidecar] wmctrl failed: {}", String::from_utf8_lossy(&out.stderr));
+                    error!("[sidecar] wmctrl failed: {}", String::from_utf8_lossy(&out.stderr));
                     // If wmctrl fails or is not installed, we might want to try other methods or just log it.
                 }
             }
             Err(e) => {
-                eprintln!("[sidecar] wmctrl execution failed (is it installed?): {}", e);
+                error!("[sidecar] wmctrl execution failed (is it installed?): {}", e);
             }
         }
     } else {
-        eprintln!("[sidecar] No title provided for linux window focus");
+        error!("[sidecar] No title provided for linux window focus");
     }
 
     Ok(())
@@ -149,7 +155,7 @@ fn focus_window_macos(payload: &FocusWindowPayload) -> Result<()> {
 
 #[cfg(target_os = "windows")]
 fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
-    eprintln!("[sidecar] focus_window_windows payload: {:?}", payload);
+    info!("[sidecar] focus_window_windows payload: {:?}", payload);
 
     let hwnd_val = payload.hwnd.context("No HWND provided in payload")?;
     let hwnd = HWND(hwnd_val);
@@ -181,7 +187,7 @@ pub fn list_browser_windows(browser_pid: u32) -> Result<Vec<WindowInfo>> {
 
 #[cfg(target_os = "windows")]
 fn bring_window_to_front(hwnd: HWND) -> Result<()> {
-    eprintln!("[sidecar] bring_window_to_front hwnd={hwnd:?}");
+    info!("[sidecar] bring_window_to_front hwnd={hwnd:?}");
 
     unsafe {
         let browser_thread_id = GetWindowThreadProcessId(hwnd, None);
@@ -212,7 +218,7 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
         }
     }
 
-    eprintln!("[sidecar] bring_window_to_front completed for hwnd={hwnd:?}");
+    info!("[sidecar] bring_window_to_front completed for hwnd={hwnd:?}");
     Ok(())
 }
 
@@ -247,7 +253,7 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
     if read > 0 {
         buffer.truncate(read);
         let title = OsString::from_wide(&buffer).to_string_lossy().to_string();
-        
+
         // Basic filter to avoid capturing internal/utility windows
         if !title.is_empty() && title.len() > 2 {
              state.windows.push(WindowInfo {
@@ -264,21 +270,26 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 #[cfg(target_os = "windows")]
 fn get_process_name(pid: u32) -> Option<String> {
     unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).ok()?;
+        let mut hmod = HMODULE::default();
+        let mut lpcb_needed = 0;
+        let mut buffer = vec![0u8; 260];
+        match EnumProcessModules(handle, &mut hmod, 0, &mut lpcb_needed) {
+            Ok(_) => {
+                let len = GetModuleBaseNameA(handle, hmod, &mut buffer);
+                let _ = CloseHandle(handle);
+                if len == 0 {
+                    return None;
+                }
+                buffer.truncate(len as usize);
+            }
+            Err(e) => {
+                error!("EnumProcessModules error: {:?}", e);
+            }
 
-        let mut buffer = vec![0u16; 260];
-        let len = K32GetModuleBaseNameW(handle, None, &mut buffer) as usize;
-        
-        if let Err(e) = CloseHandle(handle) {
-            eprintln!("[sidecar] Warning: Failed to close process handle: {:?}", e);
+
         }
-
-        if len == 0 {
-            return None;
-        }
-
-        buffer.truncate(len);
-        let name = OsString::from_wide(&buffer).to_string_lossy().to_string();
+        let name = OsString::from_encoded_bytes_unchecked(buffer).to_string_lossy().to_string();
         Some(name.to_lowercase())
     }
 }

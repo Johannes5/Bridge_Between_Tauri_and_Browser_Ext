@@ -1,6 +1,6 @@
 import { postToNative } from "./connection";
 import { state } from "./state";
-import { TabDescriptor } from "@bridge/shared-proto";
+import { TabDescriptor } from "shared-proto";
 import { serializeTab } from "./utils";
 
 class DeltaManager {

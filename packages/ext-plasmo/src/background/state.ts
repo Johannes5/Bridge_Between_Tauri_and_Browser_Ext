@@ -1,4 +1,4 @@
-import type { WindowInfo } from "@bridge/shared-proto";
+import type { WindowInfo } from "shared-proto";
 
 class GlobalState {
   private static instance: GlobalState;

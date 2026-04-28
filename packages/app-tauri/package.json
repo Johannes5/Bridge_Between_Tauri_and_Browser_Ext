@@ -1,26 +1,25 @@
 {
   "name": "mapmap-test-app",
   "version": "0.1.0",
-  "private": true,
   "description": "Minimal Tauri test environment for MapMap",
   "scripts": {
     "dev": "cross-env NODE_ENV=development rspack dev",
-    "build": "cross-env NODE_ENV=production rspack build",
+    "build:web": "cross-env NODE_ENV=production rspack build",
+    "build": "tauri build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@bridge/shared-proto": "workspace:*",
-    "@tauri-apps/api": "^2.2.0",
-    "@tauri-apps/plugin-clipboard-manager": "^2.2.0",
-    "@tauri-apps/plugin-dialog": "^2.0.1",
-    "@tauri-apps/plugin-fs": "^2.0.0",
-    "@tauri-apps/plugin-global-shortcut": "^2.0.0",
-    "@tauri-apps/plugin-process": "^2.0.0",
-    "@tauri-apps/plugin-shell": "^2.2.0",
+    "shared-proto": "*",
+    "@tauri-apps/api": "=2.6.0",
+    "@tauri-apps/plugin-clipboard-manager": "2.2.0",
+    "@tauri-apps/plugin-dialog": "2.2.0",
+    "@tauri-apps/plugin-fs": "2.2.0",
+    "@tauri-apps/plugin-global-shortcut": "2.2.0",
+    "@tauri-apps/plugin-process": "2.2.0",
+    "@tauri-apps/plugin-shell": "2.2.0",
     "lucide-react": "^0.487.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -37,7 +36,7 @@
     "@rspack/core": "^1.2.5",
     "@rspack/plugin-react-refresh": "^0.4.5",
     "@tailwindcss/postcss": "^4.1.18",
-    "@tauri-apps/cli": "^2.0.0-rc.18",
+    "@tauri-apps/cli": "=2.6.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^14.3.1",
     "@types/react": "^18.2.0",
@@ -59,3 +58,4 @@
     "vitest": "^0.34.6"
   }
 }
+

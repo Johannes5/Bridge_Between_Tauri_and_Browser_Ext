@@ -4,15 +4,15 @@ import {
   WindowsListPayloadSchema,
   TabsOpenOrFocusPayloadSchema,
   TabsRestorePayloadSchema
-} from "@bridge/shared-proto";
+} from "shared-proto";
 
 import { state } from "./background/state";
 import { postToNative } from "./background/connection";
-import { 
-  sendCurrentWindowTabs, 
-  saveAndCloseActiveWindow, 
-  restoreTabs, 
-  openOrFocus 
+import {
+  sendCurrentWindowTabs,
+  saveAndCloseActiveWindow,
+  restoreTabs,
+  openOrFocus
 } from "./background/tabs";
 
 const HOST_NAME = "com.bridge.app";
@@ -80,7 +80,7 @@ const onFromNative = async (raw: unknown) => {
            if (!state.isConnectionReady) {
                state.isConnectionReady = true;
                console.log(`[bridge-ext] Handshake complete. Self-assigned: ${state.browser} (${state.connectionId})`);
-               
+
                // Send initial data
                postToNative({ v: 1, type: "windows.list.request", payload: {} });
                void sendCurrentWindowTabs("initial-after-connect");
@@ -95,7 +95,7 @@ const onFromNative = async (raw: unknown) => {
           const allWindows = await chrome.windows.getAll();
           for (const nativeWin of listPayload.data.windows) {
             // Find the corresponding browser window by title match
-            const browserWin = allWindows.find((w) => 
+            const browserWin = allWindows.find((w) =>
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               nativeWin.title.includes((w as any).title ?? "")
             );
@@ -130,8 +130,8 @@ const onFromNative = async (raw: unknown) => {
           v: 1,
           id,
           type: "presence.status",
-          payload: { 
-              extension: "online", 
+          payload: {
+              extension: "online",
               timestamp: Date.now(),
               connectionId: state.connectionId ?? undefined,
               browser: state.browser ?? undefined
@@ -162,16 +162,16 @@ import { deltaManager } from "./background/delta-manager";
 const subscribeTabEvents = () => {
   // Use DeltaManager for granular updates
   chrome.tabs.onCreated.addListener((tab) => deltaManager.queueAdded(tab));
-  
+
   chrome.tabs.onUpdated.addListener((_id, changeInfo, tab) => {
     // Only send updates for meaningful changes
     if (changeInfo.url || changeInfo.title || changeInfo.pinned !== undefined || changeInfo.status === "complete") {
       deltaManager.queueUpdated(tab);
     }
   });
-  
+
   chrome.tabs.onRemoved.addListener((tabId) => deltaManager.queueRemoved(tabId));
-  
+
   // For structural changes (window movement), we still fall back to full sync for safety for now,
   // or we could implement move support in DeltaManager later.
   chrome.tabs.onAttached.addListener(() => void sendCurrentWindowTabs("attached"));

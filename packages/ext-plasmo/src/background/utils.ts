@@ -1,4 +1,3 @@
-import { TabDescriptorSchema } from "@bridge/shared-proto";
 
 export const coerceLastAccessed = (tab: chrome.tabs.Tab): number => {
   // Chrome tabs have lastAccessed but @types/chrome doesn't include it

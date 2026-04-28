@@ -1,7 +1,7 @@
 import {
   FocusWindowPayloadSchema,
   TabsListPayloadSchema
-} from "@bridge/shared-proto";
+} from "shared-proto";
 import { state } from "./state";
 import { postToNative } from "./connection";
 import { serializeTab } from "./utils";
