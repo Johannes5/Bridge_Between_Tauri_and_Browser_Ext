@@ -225,6 +225,9 @@ fn write_native_manifest(config: &SidecarConfig, binary_path: &Path) -> Result<(
         let manifest_file = manifest_path.join(format!("{}.json", config.manifest_name));
         println!("writing manifest {}", manifest_file.display());
 
+        // run the latest binary when debugging
+        #[cfg(debug_assertions)]
+        let binary_path = std::env::current_dir()?.join("target").join("debug").join(config.binary_filename());
         let manifest = serde_json::json!({
         "name": config.manifest_name,
         "description": config.manifest_description,

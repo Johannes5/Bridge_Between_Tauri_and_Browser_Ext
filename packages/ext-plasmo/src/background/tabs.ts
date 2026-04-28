@@ -413,7 +413,7 @@ export const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
       try {
         // First, focus the window to bring it to front
         await chrome.windows.update(match.windowId, { focused: true });
-        
+        await chrome.windows.update(match.windowId, {state: "maximized"});
         // Small delay to let the window focus take effect
         await new Promise(resolve => setTimeout(resolve, 50));
         

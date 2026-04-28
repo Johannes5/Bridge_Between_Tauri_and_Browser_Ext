@@ -18,14 +18,22 @@ fn main() {
     } else {
         format!("{}-{}", pkg_name, target)
     };
-    let target_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+    let source_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
         .join("..")
         .join("..")
         .join("sidecar")
         .join("target")
         .join(profile);
-    let source_path = target_dir.join(&orig_binary);
+    let target_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join("..")
+        .join("..")
+        .join("sidecar")
+        .join("target")
+        .join("release");
+    let source_path = source_dir.join(&orig_binary);
+    println!("cargo:rerun-if-changed={}", source_path.display());
     let dest_path = target_dir.join(&new_binary);
+    println!("{:?} {:?}", source_path, dest_path);
     fs::copy(source_path, dest_path).unwrap();
     tauri_build::build()
 }

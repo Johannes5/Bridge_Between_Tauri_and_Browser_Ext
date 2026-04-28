@@ -10,6 +10,8 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 use log::{info, error};
 use log::LevelFilter;
+use windows::Win32::System::Threading::GetCurrentProcessId;
+use sysinfo::{Process, Pid, System};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
@@ -127,27 +129,52 @@ fn get_parent_process_name_linux() -> Option<String> {
 #[cfg(target_os = "windows")]
 fn get_parent_pid() -> Option<u32> {
     use std::process::Command;
+
     let current_pid = std::process::id();
-    let output = Command::new("wmic")
-        .args(&[
-            "process",
-            "where",
-            &format!("ProcessId={}", current_pid),
-            "get",
-            "ParentProcessId",
-            "/value",
-        ])
-        .output()
-        .ok()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout
-        .lines()
-        .find(|line| line.starts_with("ParentProcessId="))?
-        .trim_start_matches("ParentProcessId=")
-        .trim()
-        .parse()
-        .ok()
+
+    // Get all ancestor processes (traverse up the tree)
+    let mut check_pid = current_pid;
+    let mut depth = 0;
+
+    while depth < 5 { // Check up to 5 levels up
+        let s = System::new_all();
+        let process = s.process(Pid::from(check_pid as usize))?;
+
+
+        let name = process.name().to_str()?.to_string();
+
+        let parent_pid: u32 = process.parent()?.as_u32();
+        // Check if this is a browser process
+        let lower = name.to_lowercase();
+        if lower.contains("chrome.exe")
+            || lower.contains("msedge.exe")
+            || lower.contains("brave.exe")
+            || lower.contains("comet.exe")
+            || lower.contains("firefox.exe") {
+            return Some(check_pid);
+        }
+
+        // Skip intermediate processes - keep looking up the tree
+        if lower == "cmd.exe"
+            || lower == "conhost.exe"
+            || lower.contains("bridge-sidecar") {
+            check_pid = parent_pid;
+            depth += 1;
+            continue;
+        }
+
+        // If we found something else that's not browser-related, return it
+        if !lower.is_empty() {
+            return Some(check_pid);
+        }
+
+        check_pid = parent_pid;
+        depth += 1;
+    }
+
+    None
 }
+
 
 #[cfg(target_os = "windows")]
 fn get_process_name_by_pid(pid: u32) -> Option<String> {

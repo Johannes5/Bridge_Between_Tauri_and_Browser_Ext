@@ -15,7 +15,7 @@ use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
 use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::{
-    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
 };
 
 #[cfg(target_os = "windows")]
@@ -29,6 +29,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameA};
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HMODULE;
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW, SW_MAXIMIZE, SW_SHOW, WM_ACTIVATE, WM_SETFOCUS};
+
 //TODO: figure out a better way to filter out the correct window to bring to front
 #[derive(Debug, Deserialize)]
 pub struct FocusWindowPayload {
@@ -64,7 +66,7 @@ pub fn focus_window(payload: &FocusWindowPayload) -> Result<()> {
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        println!("[sidecar] focus.window not supported on this platform");
+        info!("[sidecar] focus.window not supported on this platform");
         Ok(())
     }
 }
@@ -188,17 +190,33 @@ pub fn list_browser_windows(browser_pid: u32) -> Result<Vec<WindowInfo>> {
 #[cfg(target_os = "windows")]
 fn bring_window_to_front(hwnd: HWND) -> Result<()> {
     info!("[sidecar] bring_window_to_front hwnd={hwnd:?}");
-
     unsafe {
-        let browser_thread_id = GetWindowThreadProcessId(hwnd, None);
-        let current_thread_id = GetCurrentThreadId();
+        let h_cur_wnd = GetForegroundWindow() ;
 
+        let dw_my_id =  GetWindowThreadProcessId(hwnd, None) ;
+
+        let dw_cur_id = GetWindowThreadProcessId(h_cur_wnd, None) ;
+
+        // Attach our thread to the foreground window's thread
+        if dw_cur_id != 0 {
+             AttachThreadInput(dw_cur_id, dw_my_id, true);
+        }
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        info!("window pid: {}", pid);
         let _ = AllowSetForegroundWindow(ASFW_ANY);
+        let _ = AllowSetForegroundWindow(pid);
 
-        let attached = AttachThreadInput(current_thread_id, browser_thread_id, true).as_bool();
 
-        let _ = ShowWindow(hwnd, SW_RESTORE);
-        let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE,
+        );
         let _ = SetWindowPos(
             hwnd,
             HWND_NOTOPMOST,
@@ -210,13 +228,12 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
         );
 
         let _ = BringWindowToTop(hwnd);
+        let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = SetForegroundWindow(hwnd);
         SwitchToThisWindow(hwnd, true);
-
-        if attached {
-            let _ = AttachThreadInput(current_thread_id, browser_thread_id, false);
-        }
     }
+
+
 
     info!("[sidecar] bring_window_to_front completed for hwnd={hwnd:?}");
     Ok(())
