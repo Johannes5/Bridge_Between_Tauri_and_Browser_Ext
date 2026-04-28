@@ -31,6 +31,7 @@ export const TabDescriptorSchema = z.object({
   favIconUrl: relaxedUrl,
   lastAccessed: z.number().int().optional(),
   windowId: z.number().int().optional(),
+  index: z.number().int().nonnegative().optional(),
   groupId: z.number().int().optional(),
   pinned: z.boolean().optional()
 });
@@ -73,4 +74,15 @@ export const TabsRestorePayloadSchema = z.object({
 });
 
 export type TabsRestorePayload = z.infer<typeof TabsRestorePayloadSchema>;
+
+export const TabsDeltaPayloadSchema = z.object({
+  added: z.array(TabDescriptorSchema).default([]),
+  updated: z.array(TabDescriptorSchema).default([]),
+  removed: z.array(z.number().int()).default([]),
+  connectionId: z.string().optional(),
+  browser: z.string().optional()
+});
+
+export type TabsDeltaPayload = z.infer<typeof TabsDeltaPayloadSchema>;
+
 

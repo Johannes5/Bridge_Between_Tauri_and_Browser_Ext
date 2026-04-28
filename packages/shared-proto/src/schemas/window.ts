@@ -1,12 +1,20 @@
 import { z } from "zod";
 
 export const FocusWindowPayloadSchema = z.object({
-  windowId: z.number().int().optional(),
-  title: z.string().optional(),
-  url: z.string().optional(),
-  browser: z.string().optional(),
-  connectionId: z.string().optional()
+  hwnd: z.number().int().optional()
 });
 
-export type FocusWindowPayload = z.infer<typeof FocusWindowPayloadSchema>;
+export const WindowInfoSchema = z.object({
+  hwnd: z.number().int(),
+  pid: z.number().int(),
+  title: z.string(),
+});
+
+export const WindowsListPayloadSchema = z.object({
+  windows: z.array(WindowInfoSchema),
+  connectionId: z.string(),
+});
+
+export type WindowInfo = z.infer<typeof WindowInfoSchema>;
+export type WindowsListPayload = z.infer<typeof WindowsListPayloadSchema>;
 

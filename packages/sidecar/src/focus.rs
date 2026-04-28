@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Context, Result};
 use once_cell::sync::Lazy;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use log::{error, info};
+use log::{info, error};
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
 #[cfg(target_os = "windows")]
@@ -14,13 +14,16 @@ use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 #[cfg(target_os = "windows")]
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,};
+use windows::Win32::System::Threading::{
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ
+};
+
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, BringWindowToTop, EnumWindows,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
-    SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
-    SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, ASFW_ANY,
+    AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetForegroundWindow, SetWindowPos,
+    ShowWindow, SwitchToThisWindow, ASFW_ANY, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+    SW_RESTORE,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameA};
@@ -29,13 +32,18 @@ use windows::Win32::Foundation::HMODULE;
 //TODO: figure out a better way to filter out the correct window to bring to front
 #[derive(Debug, Deserialize)]
 pub struct FocusWindowPayload {
-    #[serde(rename = "windowId")]
-    pub window_id: Option<i32>,
-    pub title: Option<String>,
-    pub url: Option<String>,
+    #[allow(dead_code)]
+    pub hwnd: Option<isize>,
     pub browser: Option<String>,
-    #[serde(rename = "connectionId")]
-    pub connection_id: Option<String>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[allow(dead_code)]
+pub struct WindowInfo {
+    pub hwnd: isize,
+    pub pid: u32,
+    pub title: String,
 }
 
 pub fn focus_window(payload: &FocusWindowPayload) -> Result<()> {
@@ -44,54 +52,127 @@ pub fn focus_window(payload: &FocusWindowPayload) -> Result<()> {
         focus_window_windows(payload)
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        focus_window_macos(payload)
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        focus_window_linux(payload)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         println!("[sidecar] focus.window not supported on this platform");
         Ok(())
     }
 }
 
-#[cfg(target_os = "windows")]
-static WINDOW_CACHE: Lazy<Mutex<HashMap<i32, isize>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+#[cfg(target_os = "linux")]
+fn focus_window_linux(payload: &FocusWindowPayload) -> Result<()> {
+    use std::process::Command;
+
+    // Try using wmctrl if available
+    if let Some(title) = &payload.title {
+        // -a activates the window
+        let output = Command::new("wmctrl")
+            .arg("-a")
+            .arg(title)
+            .output();
+
+        match output {
+            Ok(out) => {
+                if !out.status.success() {
+                    error!("[sidecar] wmctrl failed: {}", String::from_utf8_lossy(&out.stderr));
+                    // If wmctrl fails or is not installed, we might want to try other methods or just log it.
+                }
+            }
+            Err(e) => {
+                error!("[sidecar] wmctrl execution failed (is it installed?): {}", e);
+            }
+        }
+    } else {
+        error!("[sidecar] No title provided for linux window focus");
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn focus_window_macos(payload: &FocusWindowPayload) -> Result<()> {
+    use std::process::Command;
+
+    let browser_name = payload.browser.as_deref().unwrap_or("Chrome");
+    let app_name = match browser_name.to_lowercase().as_str() {
+        b if b.contains("chrome") => "Google Chrome",
+        b if b.contains("firefox") => "Firefox",
+        b if b.contains("edge") => "Microsoft Edge",
+        b if b.contains("brave") => "Brave Browser",
+        b if b.contains("safari") => "Safari",
+        _ => browser_name,
+    };
+
+    let script = if let Some(title) = &payload.title {
+        // Simple AppleScript to find window by title for Chrome/Brave
+        if app_name == "Google Chrome" || app_name == "Brave Browser" {
+            format!(
+                r#"
+                tell application "{}"
+                    activate
+                    repeat with w in windows
+                        if title of w contains "{}" then
+                            set index of w to 1
+                            exit repeat
+                        end if
+                    end repeat
+                end tell
+                "#,
+                app_name, title
+            )
+        } else {
+            // Fallback for other browsers or if title handling is different
+            format!(r#"tell application "{}" to activate"#, app_name)
+        }
+    } else {
+        format!(r#"tell application "{}" to activate"#, app_name)
+    };
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "osascript failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(())
+}
 
 #[cfg(target_os = "windows")]
 fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
+    info!("[sidecar] focus_window_windows payload: {:?}", payload);
 
-    let mut cache = WINDOW_CACHE
-        .lock()
-        .map_err(|err| anyhow!("focus cache poisoned: {err:#}"))?;
+    let hwnd_val = payload.hwnd.context("No HWND provided in payload")?;
+    let hwnd = HWND(hwnd_val);
 
-    // Currently unused but kept for future routing logic
-    let _ = &payload.connection_id;
-
-    if let Some(window_id) = payload.window_id {
-        if let Some(raw_hwnd) = cache.get(&window_id).copied() {
-            let hwnd = HWND(raw_hwnd);
-            if unsafe { IsWindow(hwnd).as_bool() } {
-                drop(cache);
-                bring_window_to_front(hwnd)?;
-                return Ok(());
-            } else {
-                cache.remove(&window_id);
-            }
-        }
+    if !unsafe { IsWindow(hwnd).as_bool() } {
+        return Err(anyhow!("Invalid HWND received: {}", hwnd_val));
     }
 
-    drop(cache);
+    bring_window_to_front(hwnd)?;
+    Ok(())
+}
 
-    let target_hint = payload
-        .title
-        .as_ref()
-        .map(|s| s.to_lowercase())
-        .or_else(|| payload.url.as_ref().map(|s| s.to_lowercase()));
-    let process_names = expected_process_names(payload.browser.as_deref());
-
-    let mut state = SearchState {
-        target_hint,
-        process_names,
-        best_hwnd: None,
-        best_score: 0,
+#[cfg(target_os = "windows")]
+pub fn list_browser_windows(browser_pid: u32) -> Result<Vec<WindowInfo>> {
+    let mut state = ListWindowsState {
+        browser_pid,
+        windows: Vec::new(),
     };
 
     unsafe {
@@ -101,76 +182,23 @@ fn focus_window_windows(payload: &FocusWindowPayload) -> Result<()> {
         );
     }
 
-    let hwnd = state
-        .best_hwnd
-        .context("No suitable browser window found")?;
-
-    if let Some(window_id) = payload.window_id {
-        if let Ok(mut guard) = WINDOW_CACHE.lock() {
-            guard.insert(window_id, hwnd.0);
-        }
-    }
-
-    bring_window_to_front(hwnd)?;
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn expected_process_names(browser: Option<&str>) -> Vec<String> {
-    let mut result = Vec::new();
-    if let Some(name) = browser {
-        let lower = name.to_lowercase();
-        if lower.contains("chrome") {
-            result.push("chrome.exe".to_string());
-        } else if lower.contains("edge") {
-            result.push("msedge.exe".to_string());
-        } else if lower.contains("brave") {
-            result.push("brave.exe".to_string());
-        } else if lower.contains("firefox") {
-            result.push("firefox.exe".to_string());
-        } else if lower.contains("comet") || lower.contains("perplexity") {
-            result.push("comet.exe".to_string());
-            result.push("chrome.exe".to_string());
-        }
-    }
-
-    if result.is_empty() {
-        result.extend(
-            [
-                "chrome.exe",
-                "msedge.exe",
-                "brave.exe",
-                "comet.exe",
-                "firefox.exe",
-            ]
-            .iter()
-            .map(|s| s.to_string()),
-        );
-    }
-    result
+    Ok(state.windows)
 }
 
 #[cfg(target_os = "windows")]
 fn bring_window_to_front(hwnd: HWND) -> Result<()> {
+    info!("[sidecar] bring_window_to_front hwnd={hwnd:?}");
 
     unsafe {
-        let mut pid = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let browser_thread_id = GetWindowThreadProcessId(hwnd, None);
+        let current_thread_id = GetCurrentThreadId();
 
         let _ = AllowSetForegroundWindow(ASFW_ANY);
-        let _ = AllowSetForegroundWindow(pid);
+
+        let attached = AttachThreadInput(current_thread_id, browser_thread_id, true).as_bool();
 
         let _ = ShowWindow(hwnd, SW_RESTORE);
-
-        let _ = SetWindowPos(
-            hwnd,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE,
-        );
+        let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         let _ = SetWindowPos(
             hwnd,
             HWND_NOTOPMOST,
@@ -180,68 +208,60 @@ fn bring_window_to_front(hwnd: HWND) -> Result<()> {
             0,
             SWP_NOMOVE | SWP_NOSIZE,
         );
+
         let _ = BringWindowToTop(hwnd);
         let _ = SetForegroundWindow(hwnd);
+        SwitchToThisWindow(hwnd, true);
+
+        if attached {
+            let _ = AttachThreadInput(current_thread_id, browser_thread_id, false);
+        }
     }
 
+    info!("[sidecar] bring_window_to_front completed for hwnd={hwnd:?}");
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
-struct SearchState {
-    target_hint: Option<String>,
-    process_names: Vec<String>,
-    best_hwnd: Option<HWND>,
-    best_score: i32,
+struct ListWindowsState {
+    browser_pid: u32,
+    windows: Vec<WindowInfo>,
 }
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let state = &mut *(lparam.0 as *mut SearchState);
+    let state = &mut *(lparam.0 as *mut ListWindowsState);
+
     if !IsWindow(hwnd).as_bool() || !IsWindowVisible(hwnd).as_bool() {
         return BOOL(1);
     }
 
-    let mut score = 0;
-
     let mut pid = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    if let Some(name) = get_process_name(pid) {
 
-        if !state.process_names.is_empty()
-            && !state
-                .process_names
-                .iter()
-                .any(|expected| name.ends_with(expected))
-        {
-            return BOOL(1);
-        }
-        score += 100;
-    } else {
+    if pid != state.browser_pid {
         return BOOL(1);
     }
 
     let length = GetWindowTextLengthW(hwnd);
-    if length > 0 {
-        let mut buffer = vec![0u16; (length + 1) as usize];
-        let read = GetWindowTextW(hwnd, &mut buffer) as usize;
-        if read > 0 {
-            buffer.truncate(read);
-            let title = OsString::from_wide(&buffer).to_string_lossy().to_string();
-            if let Some(target) = &state.target_hint {
-                if !target.is_empty() && title.to_lowercase().contains(target) {
-                    score += 50;
-                }
-            }
-            if !title.is_empty() {
-                score += 5;
-            }
-        }
+    if length == 0 {
+        return BOOL(1);
     }
 
-    if score > state.best_score {
-        state.best_score = score;
-        state.best_hwnd = Some(hwnd);
+    let mut buffer = vec![0u16; (length + 1) as usize];
+    let read = GetWindowTextW(hwnd, &mut buffer) as usize;
+    if read > 0 {
+        buffer.truncate(read);
+        let title = OsString::from_wide(&buffer).to_string_lossy().to_string();
+
+        // Basic filter to avoid capturing internal/utility windows
+        if !title.is_empty() && title.len() > 2 {
+             state.windows.push(WindowInfo {
+                hwnd: hwnd.0,
+                pid,
+                title,
+            });
+        }
     }
 
     BOOL(1)
@@ -273,5 +293,4 @@ fn get_process_name(pid: u32) -> Option<String> {
         Some(name.to_lowercase())
     }
 }
-
 

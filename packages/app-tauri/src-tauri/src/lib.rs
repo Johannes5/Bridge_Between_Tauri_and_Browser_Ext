@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{Manager, State};
 use crate::install::{SidecarConfig, SidecarManager};
-
+use tracing::{error, info};
 #[derive(Debug, Serialize, Deserialize)]
 struct TestResponse {
     message: String,
@@ -36,13 +36,13 @@ async fn check_sidecar_update(
 
 #[tauri::command]
 async fn greet(name: String) -> Result<String, String> {
-    println!("[bridge-app] greeting {name}");
+    info!("[bridge-app] greeting {name}");
     Ok(format!("Hello, {name}! Welcome to MapMap Test App."))
 }
 
 #[tauri::command]
 async fn test_command() -> Result<TestResponse, String> {
-    println!("[bridge-app] test command invoked");
+    info!("[bridge-app] test command invoked");
     Ok(TestResponse {
         message: "Test command executed successfully".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -60,22 +60,29 @@ async fn bridge_send(state: State<'_, BridgeState>, envelope: Value) -> Result<(
 }
 
 async fn setup(app: tauri::AppHandle) -> Result<(), String> {
-    println!("[bridge-app] async setup starting");
+    info!("[bridge-app] async setup starting");
 
     if let Some(main_window) = app.get_webview_window("main") {
         let _ = main_window.show();
-        println!("[bridge-app] main window restored");
+        info!("[bridge-app] main window restored");
     } else {
-        println!("[bridge-app] main window missing during setup");
+        info!("[bridge-app] main window missing during setup");
     }
 
-    println!("[bridge-app] async setup complete");
+    info!("[bridge-app] async setup complete");
     Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    println!("[bridge-app] starting");
+    // Initialize env and logging
+    let _ = dotenvy::dotenv();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    info!("[bridge-app] starting");
+
     let config = SidecarConfig {
         binary_name: "bridge-sidecar".into(),
         github_repo: "Johannes5/Bridge_Between_Tauri_and_Browser_Ext".into(),
@@ -94,17 +101,18 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|_app_handle, shortcut, event| {
                     if let tauri_plugin_global_shortcut::ShortcutState::Pressed = event.state() {
-                        println!("[bridge-app] global shortcut triggered: {shortcut:?}");
+                        info!("[bridge-app] global shortcut triggered: {shortcut:?}");
                     }
                 })
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![greet, test_command, bridge_send, check_sidecar_update])
         .setup(|app| {
-            println!("[bridge-app] builder setup starting");
+
+            info!("[bridge-app] builder setup starting");
             let app_handle = app.handle().clone();
             if let Err(e) = manager.ensure_installed(&app_handle) {
-                eprintln!("Sidecar installation failed: {}", e);
+                error!("Sidecar installation failed: {}", e);
             }
             let bridge_handle = bridge_ws::spawn(&app.handle());
             app.manage(BridgeState(bridge_handle.clone()));
@@ -112,20 +120,19 @@ pub fn run() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(err) = setup(app_handle).await {
-                    eprintln!("[bridge-app] async setup failed: {err}");
+                    error!("[bridge-app] async setup failed: {err}");
                 }
-
             });
 
-            println!("[bridge-app] builder setup complete");
+            info!("[bridge-app] builder setup complete");
             Ok(())
         });
 
-    println!("[bridge-app] running event loop");
+    info!("[bridge-app] running event loop");
     match builder.run(tauri::generate_context!()) {
-        Ok(_) => println!("[bridge-app] clean shutdown"),
+        Ok(_) => info!("[bridge-app] clean shutdown"),
         Err(err) => {
-            eprintln!("[bridge-app] runtime error: {err:?}");
+            error!("[bridge-app] runtime error: {err:?}");
             std::process::exit(1);
         }
     }

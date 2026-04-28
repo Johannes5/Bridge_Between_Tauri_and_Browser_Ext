@@ -10,13 +10,24 @@ This crate implements the native-messaging host that brokers traffic between the
 cargo build --release
 ```
 
-### 2. Install Native Messaging Host (Windows)
+### 2. Install Native Messaging Host
+
+#### Windows
 
 Get your extension ID from your browser's extensions page (enable Developer mode to see it), then run:
 
 ```powershell
 cd manifests
 .\install-windows.ps1 -ExtensionId "your-extension-id-here" -Browser all
+```
+
+#### macOS / Linux
+
+Get your extension ID from your browser's extensions page, then run:
+
+```bash
+chmod +x install.sh
+./install.sh <your-extension-id-here>
 ```
 
 ### 3. Restart & Test

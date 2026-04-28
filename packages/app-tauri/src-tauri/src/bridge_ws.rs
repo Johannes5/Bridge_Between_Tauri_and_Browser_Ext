@@ -4,29 +4,42 @@ use serde_json::{json, Value};
 use std::{
   collections::HashMap,
   env,
-  sync::{Arc, Mutex},
+  sync::Arc,
 };
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock, Mutex};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tauri::Emitter;
+use tracing::{debug, error, info, warn};
 
-const APP_WS_PORT: u16 = 17342;
-const DEBUG_WS_PORT: u16 = 17888;
+fn get_app_port() -> u16 {
+    env::var("BRIDGE_APP_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(17342)
+}
+
+fn get_debug_port() -> u16 {
+    env::var("BRIDGE_DEBUG_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(17888)
+}
 
 type ConnectionId = String;
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct ConnectionMeta {
   id: ConnectionId,
   browser: Option<String>,
   sender: mpsc::Sender<String>,
 }
 
-type ConnectionMap = Arc<Mutex<HashMap<ConnectionId, ConnectionMeta>>>;
+type ConnectionMap = Arc<RwLock<HashMap<ConnectionId, ConnectionMeta>>>;
 
 pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
-  let connections: ConnectionMap = Arc::new(Mutex::new(HashMap::new()));
+  let connections: ConnectionMap = Arc::new(RwLock::new(HashMap::new()));
   let (from_sidecar_tx, mut from_sidecar_rx) = mpsc::channel::<String>(256);
 
   let hub = DebugHub::default();
@@ -35,7 +48,7 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
 
   tauri::async_runtime::spawn(async move {
     while let Some(msg) = from_sidecar_rx.recv().await {
-      incoming_hub.broadcast(&msg);
+      incoming_hub.broadcast(&msg).await;
       let _ = app_handle.emit("bridge://incoming", msg);
     }
   });
@@ -46,19 +59,21 @@ pub fn spawn(app: &tauri::AppHandle) -> BridgeHandle {
     if let Err(err) =
       run_sidecar_listener(connections_for_listener, from_sidecar_tx, hub_for_sidecar).await
     {
-      eprintln!("[app] sidecar listener exited: {err:#}");
+      error!("[app] sidecar listener exited: {err:#}");
     }
   });
 
   let debug_enabled =
     cfg!(debug_assertions) || env::var("BRIDGE_DEBUG_WS").map(|v| v == "1").unwrap_or(false);
+
   if debug_enabled {
     let hub_for_debug = hub.clone();
     let connections_for_debug = connections.clone();
     tauri::async_runtime::spawn(async move {
-      if let Err(err) = run_debug_listener(DEBUG_WS_PORT, hub_for_debug, connections_for_debug).await
+      let port = get_debug_port();
+      if let Err(err) = run_debug_listener(port, hub_for_debug, connections_for_debug).await
       {
-        eprintln!("[app] debug listener exited: {err:#}");
+        error!("[app] debug listener exited: {err:#}");
       }
     });
   }
@@ -71,12 +86,15 @@ async fn run_sidecar_listener(
   from_sidecar_tx: mpsc::Sender<String>,
   hub: DebugHub,
 ) -> Result<()> {
-  let listener = TcpListener::bind(("127.0.0.1", APP_WS_PORT))
+  let port = get_app_port();
+  let listener = TcpListener::bind(("127.0.0.1", port))
     .await
-    .with_context(|| format!("binding app ws on 127.0.0.1:{APP_WS_PORT}"))?;
+    .with_context(|| format!("binding app ws on 127.0.0.1:{port}"))?;
+
+  info!("[app] Sidecar listener running on 127.0.0.1:{}", port);
 
   loop {
-    let (stream, _) = listener.accept().await?;
+    let (stream, addr) = listener.accept().await?;
     let ws_stream = accept_async(stream).await?;
     let (mut write, mut read) = ws_stream.split();
 
@@ -85,8 +103,35 @@ async fn run_sidecar_listener(
     let hub_clone = hub.clone();
     let connections_clone = connections.clone();
 
-    let mut connection_id: Option<ConnectionId> = None;
+    // Register temporary connection immediately to allow broadcasting
+    let temp_id = format!("temp-{}", addr);
+    let mut connection_id = Some(temp_id.clone());
     let mut browser: Option<String> = None;
+
+    {
+        let mut map = connections_clone.write().await;
+        map.insert(
+            temp_id.clone(),
+            ConnectionMeta {
+                id: temp_id.clone(),
+                browser: None,
+                sender: to_sidecar_tx.clone(),
+            },
+        );
+        info!("[app] Registered temp connection: {}", temp_id);
+
+        // Initiate handshake immediately
+        let handshake = json!({
+            "v": 1,
+            "id": format!("init-{}", addr),
+            "type": "presence.query",
+            "payload": { "requester": "bridge-host" }
+        }).to_string();
+
+        if let Err(e) = to_sidecar_tx.send(handshake).await {
+             warn!("[app] Failed to send handshake to {}: {}", temp_id, e);
+        }
+    }
 
     tokio::spawn(async move {
       loop {
@@ -101,46 +146,51 @@ async fn run_sidecar_listener(
               Some(Ok(Message::Text(txt))) => {
                 eprintln!("[app] Received WebSocket message: of len {:?}", txt.len());
                 
-                // Try to extract connection metadata from presence messages
-                if connection_id.is_none() {
-                  eprintln!("[app] Attempting to extract connection metadata");
-                  if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
-                    eprintln!("[app] Parsed envelope, type: {:?}", envelope.get("type"));
-                    if envelope.get("type").and_then(|t| t.as_str()) == Some("presence.status") {
-                      eprintln!("[app] Found presence.status message");
-                      if let Some(payload) = envelope.get("payload") {
-                        eprintln!("[app] Payload: {:?}", payload);
-                        if let Some(conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
-                          connection_id = Some(conn_id.to_string());
-                          browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
-                          
-                          // Register this connection
-                          if let Ok(mut map) = connections_clone.lock() {
-                            map.insert(
-                              conn_id.to_string(),
-                              ConnectionMeta {
-                                id: conn_id.to_string(),
-                                browser: browser.clone(),
-                                sender: to_sidecar_tx.clone(),
-                              },
-                            );
-                            eprintln!("[app] Connection registered: {} ({:?})", conn_id, browser);
-                          }
+                // Check for presence update to promote connection
+                if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
+                  if envelope.get("type").and_then(|t| t.as_str()) == Some("presence.status") {
+                    if let Some(payload) = envelope.get("payload") {
+                      if let Some(real_conn_id) = payload.get("connectionId").and_then(|c| c.as_str()) {
+                        let new_id = real_conn_id.to_string();
+                        let new_browser = payload.get("browser").and_then(|b| b.as_str()).map(|s| s.to_string());
+
+                        // Promote if ID changed or just updating metadata
+                        let current_id = connection_id.as_ref().unwrap(); // We always have a temp ID at least
+
+                        if current_id != &new_id {
+                           let mut map = connections_clone.write().await;
+                           // Remove old ID
+                           map.remove(current_id);
+
+                           // Insert new ID
+                           map.insert(
+                             new_id.clone(),
+                             ConnectionMeta {
+                               id: new_id.clone(),
+                               browser: new_browser.clone(),
+                               sender: to_sidecar_tx.clone(),
+                             },
+                           );
+
+                           info!("[app] Connection promoted: {} -> {} ({:?})", current_id, new_id, new_browser);
+                           connection_id = Some(new_id);
+                           browser = new_browser;
                         } else {
-                          eprintln!("[app] No connectionId in payload");
+                            // Just update browser info if needed
+                            if browser != new_browser {
+                                let mut map = connections_clone.write().await;
+                                if let Some(meta) = map.get_mut(current_id) {
+                                    meta.browser = new_browser.clone();
+                                }
+                                browser = new_browser;
+                            }
                         }
-                      } else {
-                        eprintln!("[app] No payload in presence.status");
                       }
                     }
-                  } else {
-                    eprintln!("[app] Failed to parse message as JSON");
                   }
-                } else {
-                  eprintln!("[app] Connection already registered: {:?}", connection_id);
                 }
 
-                hub_clone.broadcast(&txt);
+                hub_clone.broadcast(&txt).await;
                 if tx_clone.send(txt).await.is_err() {
                   break;
                 }
@@ -161,7 +211,7 @@ async fn run_sidecar_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 if write.send(Message::Pong(payload)).await.is_err() {
                   break;
                 }
@@ -173,7 +223,7 @@ async fn run_sidecar_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
               }
               Some(Ok(Message::Close(frame))) => {
                 let code = frame.as_ref().map(|f| u16::from(f.code));
@@ -191,14 +241,14 @@ async fn run_sidecar_listener(
                   "payload": { "code": code, "reason": reason }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 break;
               }
               Some(Ok(Message::Frame(_))) => {
                 // ignore internal frames
               }
               Some(Err(err)) => {
-                eprintln!("[app] ws read error: {err:#}");
+                error!("[app] ws read error: {err:#}");
                 break;
               }
               None => break,
@@ -209,11 +259,7 @@ async fn run_sidecar_listener(
 
       // Clean up connection on disconnect
       if let Some(conn_id) = connection_id {
-        if let Ok(mut map) = connections_clone.lock() {
-          map.remove(&conn_id);
-          eprintln!("[app] Connection removed: {}", conn_id);
-        }
-
+        // Send offline notification BEFORE removing from map to avoid routing issues
         let offline_payload = json!({
           "v": 1,
           "type": "presence.status",
@@ -224,8 +270,15 @@ async fn run_sidecar_listener(
           }
         })
         .to_string();
-        hub_clone.broadcast(&offline_payload);
-        let _ = tx_clone.send(offline_payload).await;
+        hub_clone.broadcast(&offline_payload).await;
+        if let Err(e) = tx_clone.send(offline_payload).await {
+          error!("[app] Failed to send offline notification: {}", e);
+        }
+
+        // Now remove from connection map
+        let mut map = connections_clone.write().await;
+        map.remove(&conn_id);
+        info!("[app] Connection removed: {}", conn_id);
       }
     });
   }
@@ -246,7 +299,7 @@ impl BridgeHandle {
     &self,
     message: String,
   ) -> std::result::Result<(), mpsc::error::SendError<String>> {
-    self.hub.broadcast(&message);
+    self.hub.broadcast(&message).await;
 
     // Try to extract connectionId and message type
     let (target_connection_id, msg_type) = if let Ok(envelope) = serde_json::from_str::<Value>(&message) {
@@ -261,24 +314,21 @@ impl BridgeHandle {
       (None, "unparseable".to_string())
     };
 
-    // Clone senders before await to avoid holding the lock
+    // Clone senders without holding the lock for long
     let senders: Vec<mpsc::Sender<String>> = {
-      let connections = self.connections.lock().unwrap();
+      let connections = self.connections.read().await;
       
       if let Some(ref target_id) = target_connection_id {
-        eprintln!("[app] [{}] Routing to connection: {}", msg_type, target_id);
-        eprintln!("[app] [{}] Available connections: {:?}", msg_type, connections.keys().collect::<Vec<_>>());
-        
         // Send to specific connection
         if let Some(conn) = connections.get(target_id) {
-          eprintln!("[app] [{}] Found target connection, sending to 1 connection", msg_type);
+            debug!("[app] [{}] Routing to target: {}", msg_type, target_id);
           vec![conn.sender.clone()]
         } else {
-          eprintln!("[app] [{}] Target connection not found: {}", msg_type, target_id);
+            warn!("[app] [{}] Target connection not found: {}", msg_type, target_id);
           vec![]
         }
       } else {
-        eprintln!("[app] [{}] No connectionId - broadcasting to {} connections", msg_type, connections.len());
+        debug!("[app] [{}] Broadcasting to {} connections", msg_type, connections.len());
         // Broadcast to all connections
         connections.values().map(|c| c.sender.clone()).collect()
       }
@@ -286,14 +336,17 @@ impl BridgeHandle {
 
     // Send messages without holding the lock
     for sender in senders {
-      let _ = sender.send(message.clone()).await;
+      if let Err(e) = sender.send(message.clone()).await {
+        error!("[app] Failed to send message to connection: {}", e);
+      }
     }
 
     Ok(())
   }
 
-  pub fn get_connections(&self) -> Vec<(String, Option<String>)> {
-    let connections = self.connections.lock().unwrap();
+  #[allow(dead_code)]
+  pub async fn get_connections(&self) -> Vec<(String, Option<String>)> {
+    let connections = self.connections.read().await;
     connections
       .values()
       .map(|c| (c.id.clone(), c.browser.clone()))
@@ -310,11 +363,13 @@ async fn run_debug_listener(
     .await
     .with_context(|| format!("binding debug ws on 127.0.0.1:{port}"))?;
 
+    info!("[app] Debug listener running on 127.0.0.1:{}", port);
+
   loop {
     let (stream, _) = listener.accept().await?;
     let ws_stream = accept_async(stream).await?;
     let (mut write, mut read) = ws_stream.split();
-    let mut rx = hub.register();
+    let mut rx = hub.register().await;
     let hub_clone = hub.clone();
     let connections_clone = connections.clone();
 
@@ -329,7 +384,7 @@ async fn run_debug_listener(
           incoming = read.next() => {
             match incoming {
               Some(Ok(Message::Text(txt))) => {
-                hub_clone.broadcast(&txt);
+                hub_clone.broadcast(&txt).await;
 
                 // Route message to appropriate connection or broadcast
                 let senders: Vec<mpsc::Sender<String>> = if let Ok(envelope) = serde_json::from_str::<Value>(&txt) {
@@ -339,7 +394,7 @@ async fn run_debug_listener(
                     .and_then(|c| c.as_str())
                     .map(|s| s.to_string());
 
-                  let connections_map = connections_clone.lock().unwrap();
+                  let connections_map = connections_clone.read().await;
 
                   if let Some(target_id) = target_connection_id {
                     if let Some(conn) = connections_map.get(&target_id) {
@@ -357,7 +412,9 @@ async fn run_debug_listener(
 
                 // Send without holding the lock
                 for sender in senders {
-                  let _ = sender.send(txt.clone()).await;
+                  if let Err(e) = sender.send(txt.clone()).await {
+                    error!("[app] Debug listener: Failed to send message: {}", e);
+                  }
                 }
               }
               Some(Ok(Message::Binary(bin))) => {
@@ -367,7 +424,7 @@ async fn run_debug_listener(
                   "payload": { "bytes": bin.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&payload);
+                hub_clone.broadcast(&payload).await;
               }
               Some(Ok(Message::Ping(payload))) => {
                 let info = json!({
@@ -376,7 +433,7 @@ async fn run_debug_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 if write.send(Message::Pong(payload)).await.is_err() {
                   break;
                 }
@@ -388,7 +445,7 @@ async fn run_debug_listener(
                   "payload": { "bytes": payload.len() }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
               }
               Some(Ok(Message::Close(frame))) => {
                 let code = frame.as_ref().map(|f| u16::from(f.code));
@@ -406,12 +463,12 @@ async fn run_debug_listener(
                   "payload": { "code": code, "reason": reason }
                 })
                 .to_string();
-                hub_clone.broadcast(&info);
+                hub_clone.broadcast(&info).await;
                 break;
               }
               Some(Ok(Message::Frame(_))) => { /* ignore */ }
               Some(Err(err)) => {
-                eprintln!("[app] debug ws error: {err:#}");
+                error!("[app] debug ws error: {err:#}");
                 break;
               }
               None => break,
@@ -429,14 +486,14 @@ struct DebugHub {
 }
 
 impl DebugHub {
-  fn broadcast(&self, message: &str) {
-    let mut peers = self.peers.lock().unwrap();
+  async fn broadcast(&self, message: &str) {
+    let mut peers = self.peers.lock().await;
     peers.retain(|tx| tx.send(message.to_owned()).is_ok());
   }
 
-  fn register(&self) -> mpsc::UnboundedReceiver<String> {
+  async fn register(&self) -> mpsc::UnboundedReceiver<String> {
     let (tx, rx) = mpsc::unbounded_channel();
-    self.peers.lock().unwrap().push(tx);
+    self.peers.lock().await.push(tx);
     rx
   }
 }

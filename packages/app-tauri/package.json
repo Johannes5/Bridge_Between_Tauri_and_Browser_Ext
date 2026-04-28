@@ -20,8 +20,12 @@
     "@tauri-apps/plugin-global-shortcut": "2.2.0",
     "@tauri-apps/plugin-process": "2.2.0",
     "@tauri-apps/plugin-shell": "2.2.0",
+    "lucide-react": "^0.487.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-error-boundary": "^6.0.2",
+    "sonner": "^2.0.7",
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@babel/core": "^7.24.9",
@@ -31,7 +35,10 @@
     "@rspack/cli": "^1.2.5",
     "@rspack/core": "^1.2.5",
     "@rspack/plugin-react-refresh": "^0.4.5",
+    "@tailwindcss/postcss": "^4.1.18",
     "@tauri-apps/cli": "=2.6.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^14.3.1",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.14",
     "@typescript-eslint/eslint-plugin": "^7.0.1",
@@ -42,7 +49,13 @@
     "eslint": "^8.57.0",
     "eslint-plugin-react": "^7.34.0",
     "eslint-plugin-react-hooks": "^4.6.0",
+    "jsdom": "^27.4.0",
+    "postcss": "^8.5.6",
+    "postcss-loader": "^8.2.0",
     "style-loader": "^4.0.0",
-    "typescript": "^5.4.5"
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.4.5",
+    "vitest": "^0.34.6"
   }
 }
+
