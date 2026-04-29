@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 use log::{info, error};
 use log::LevelFilter;
+#[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use sysinfo::{Process, Pid, System};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";

@@ -27,9 +27,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameA};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW, SW_MAXIMIZE, SW_SHOW, WM_ACTIVATE, WM_SETFOCUS};
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HMODULE;
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW, SW_MAXIMIZE, SW_SHOW, WM_ACTIVATE, WM_SETFOCUS};
 
 //TODO: figure out a better way to filter out the correct window to bring to front
 #[derive(Debug, Deserialize)]
