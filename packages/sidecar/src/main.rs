@@ -12,7 +12,7 @@ use log::{info, error};
 use log::LevelFilter;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::GetCurrentProcessId;
-use sysinfo::{Process, Pid, System};
+use sysinfo::{Process, Pid, System, ProcessesToUpdate};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
@@ -42,6 +42,7 @@ fn detect_browser() -> String {
                 return name;
             }
         }
+
     }
 
     #[cfg(target_os = "macos")]
@@ -91,13 +92,13 @@ fn get_parent_process_name_macos() -> Option<String> {
     let current_pid = Pid::from(std::process::id() as usize);
 
     // Refresh only the necessary process information
-    system.refresh_processes();
+    system.refresh_processes(ProcessesToUpdate::All, true);
 
     // Find the current process
     if let Some(process) = system.process(current_pid) {
         if let Some(parent_pid) = process.parent() {
             if let Some(parent_process) = system.process(parent_pid) {
-                return Some(parent_process.name().to_string());
+                return Some(parent_process.name().to_str()?.to_string());
             }
         }
     }
@@ -113,13 +114,13 @@ fn get_parent_process_name_linux() -> Option<String> {
     let current_pid = Pid::from(std::process::id() as usize);
 
     // Refresh only the necessary process information
-    system.refresh_processes();
+    system.refresh_processes(ProcessesToUpdate::All, true);
 
     // Find the current process
     if let Some(process) = system.process(current_pid) {
         if let Some(parent_pid) = process.parent() {
             if let Some(parent_process) = system.process(parent_pid) {
-                return Some(parent_process.name().to_string());
+                return Some(parent_process.name().to_str()?.to_string());
             }
         }
     }
@@ -141,7 +142,7 @@ fn get_parent_pid() -> Option<u32> {
         let s = System::new_all();
         let process = s.process(Pid::from(check_pid as usize))?;
 
-
+        ;
         let name = process.name().to_str()?.to_string();
 
         let parent_pid: u32 = process.parent()?.as_u32();
