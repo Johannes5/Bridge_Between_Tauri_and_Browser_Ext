@@ -61,6 +61,8 @@ jobs:
             args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
             args: ''
+          - platform: 'windows-latest'
+            args: ''
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -143,13 +145,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v4
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '25'
+        node-version: 25
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -173,9 +173,24 @@ jobs:
 
     - name: Build MSIX bundle
       run: yarn tauri:windows:build --arch x64,arm64 --runner yarn
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+    - name: Create MSIX Release
+      id: create_release_MSIX
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        name: msix-bundle
-        path: src-tauri/target/msix/*.msixbundle
+        tag_name: ${{ github.ref }}
+        release_name: MSIX Release ${{ github.ref }}
+        body: ""
+        draft: true
+        prerelease: false
+    - name: Upload & release
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_name: msix-bundle
+        asset_path: packages/app-tauri/src-tauri/target/msix/*.msixbundle
+        asset_content_type: application/msix
