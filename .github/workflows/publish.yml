@@ -61,8 +61,6 @@ jobs:
             args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
             args: ''
-          - platform: 'windows-latest'
-            args: ''
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -73,11 +71,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 25
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -145,3 +138,44 @@ jobs:
           name: tauri-build-${{ matrix.platform }}
           path: packages/app-tauri/src-tauri/target/release/bundle/
 
+  publish-windows-app:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '25'
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-pc-windows-msvc, aarch64-pc-windows-msvc
+    - name: Install msixbundle-cli
+      run: cargo install msixbundle-cli
+
+    - name: Install dependencies
+      run: yarn install
+    - name: Build shared library
+      run: yarn run build:proto
+    - name: Build and publish sidecar
+      run: cargo build --release --manifest-path packages/sidecar/Cargo.toml
+    - name: Upload built sidecar artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: sidecar-build-${{ matrix.platform }}
+        path: packages/sidecar/target/release/bridge-sidecar*
+
+
+    - name: Build MSIX bundle
+      run: yarn tauri:windows:build --arch x64,arm64 --runner yarn
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: msix-bundle
+        path: src-tauri/target/msix/*.msixbundle
