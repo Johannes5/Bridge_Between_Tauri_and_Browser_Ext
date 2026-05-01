@@ -10,6 +10,8 @@ on:
 jobs:
   publish-extension:
     name: Publish Extension
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
 
     steps:
