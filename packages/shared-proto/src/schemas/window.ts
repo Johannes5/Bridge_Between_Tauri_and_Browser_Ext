@@ -13,6 +13,7 @@ export const WindowInfoSchema = z.object({
 export const WindowsListPayloadSchema = z.object({
   windows: z.array(WindowInfoSchema),
   connectionId: z.string(),
+  hwnds: z.any()
 });
 
 export type WindowInfo = z.infer<typeof WindowInfoSchema>;

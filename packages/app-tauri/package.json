@@ -9,7 +9,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "lint": "eslint src --ext .ts,.tsx",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "tauri:windows:build": "tauri-windows-bundle build"
   },
   "dependencies": {
     "shared-proto": "*",
@@ -55,7 +56,7 @@
     "style-loader": "^4.0.0",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.4.5",
-    "vitest": "^0.34.6"
+    "vitest": "^0.34.6",
+    "@choochmeque/tauri-windows-bundle": "^0.1.18"
   }
 }
-

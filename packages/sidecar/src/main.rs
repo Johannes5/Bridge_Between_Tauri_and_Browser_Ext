@@ -3,18 +3,46 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use std::env;
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
-use log::{info, error};
+use log::{info, error, debug};
 use log::LevelFilter;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::GetCurrentProcessId;
+#[cfg(target_os = "windows")]
+use win_event_hook::events::{Event, NamedEvent};
+
 use sysinfo::{Process, Pid, System, ProcessesToUpdate};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
+
+#[cfg(target_os = "windows")]
+use windows::{
+    core::*,
+    Win32::UI::WindowsAndMessaging::{
+        EVENT_OBJECT_CREATE, GetWindowThreadProcessId, WINEVENT_OUTOFCONTEXT,
+    },
+    Win32::System::Threading::GetCurrentThreadId,
+    Win32::Foundation::{HANDLE, HWND},
+};
+use std::collections::HashMap;
+use std::ffi::c_void;
+use std::ops::Deref;
+use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+#[cfg(target_os = "windows")]
+use win_event_hook::handles::WindowHandle;
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, OBJID_WINDOW};
+// Global storage: HWND -> creation timestamp (milliseconds)
+
+#[cfg(target_os = "windows")]
+static HWND_CREATION_TIMES: LazyLock<Mutex<HashMap<isize, u64>>> = LazyLock::new(|| Mutex::new(Default::default()));
+
 
 mod focus;
 
@@ -220,6 +248,58 @@ async fn main() -> Result<()> {
 
     info!("[sidecar] Connection ID: {}", connection_id);
     info!("[sidecar] Browser: {}", browser);
+    #[cfg(target_os = "windows")]
+    {
+        let config = win_event_hook::Config::builder()
+            .skip_own_process()
+            .with_dedicated_thread()
+            .with_events(vec![
+                Event::Named(NamedEvent::ObjectCreate),
+                Event::Named(NamedEvent::ObjectDestroy),
+            ])
+            .finish();
+
+        let handler = |ev, hwnd: WindowHandle, obj_id, b, c, d| {
+            let hwnd = hwnd.deref().0 as isize;
+            match ev {
+                Event::Named(ev) => {
+                    match ev {
+                        NamedEvent::ObjectCreate => {
+
+
+                            let now = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as u64;
+
+                            if obj_id == OBJID_WINDOW.0 {
+                                let mut w = HWND_CREATION_TIMES.lock().unwrap();
+                                w.insert(hwnd, now);
+                                info!("Object create {:?} {} {} {} {}", hwnd, obj_id, b, c, d);
+
+                            }
+
+
+                        }
+                        NamedEvent::ObjectDestroy => {
+                            info!("Object destroy {:?} {} {} {} {}", hwnd, obj_id, b, c, d);
+
+                            let mut w = HWND_CREATION_TIMES.lock().unwrap();
+                            w.remove(&hwnd);
+                        }
+                        _ => {}
+                    }
+                }
+                e => {
+                    debug!("unregistered event: {:?}", e)
+                }
+            }
+        };
+
+        // install the hook
+        let hook = win_event_hook::WinEventHook::install(config, handler)?;
+        info!("[sidecar] Native window monitor started");
+    }
 
     let (to_app_tx, to_app_rx) = mpsc::channel::<String>(256);
     let (to_extension_tx, to_extension_rx) = mpsc::channel::<String>(256);
@@ -496,12 +576,18 @@ fn handle_control_message(
                 if let Some(pid) = get_parent_pid() {
                     match focus::list_browser_windows(pid) {
                         Ok(windows) => {
+                            let hwnd_times = HWND_CREATION_TIMES.lock().unwrap().clone();
+                            let hwnd_times: HashMap<isize, u64> = hwnd_times
+                                .into_iter()
+                                .filter(|(a, b)| windows.iter().find(|w| w.hwnd == *a).is_some())
+                                .collect();
                             let response = json!({
                                 "v": 1,
                                 "type": "windows.list",
                                 "payload": {
                                     "windows": windows,
-                                    "connectionId": _connection_id
+                                    "connectionId": _connection_id,
+                                    "hwnds": hwnd_times,
                                 }
                             });
                             let response_str = response.to_string();

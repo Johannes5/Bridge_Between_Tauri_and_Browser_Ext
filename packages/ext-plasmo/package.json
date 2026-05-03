@@ -10,7 +10,8 @@
       "tabs",
       "sessions",
       "nativeMessaging",
-      "windows"
+      "windows",
+      "scripting"
     ],
     "host_permissions": [
       "http://*/*",
