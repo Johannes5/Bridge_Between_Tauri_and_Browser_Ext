@@ -21,10 +21,11 @@ class GlobalState {
   }
 
   private detectBrowser(): string {
-    const ua = navigator.userAgent.toLowerCase();
-    if (ua.includes("edg/")) return "edge";
+    const ua = navigator.userAgent.toLowerCase()
+    if (chrome.edge != undefined || ua.includes("edg/")) return "edge";
     if (ua.includes("opr/") || ua.includes("opera/")) return "opera";
-    if (ua.includes("brave")) return "brave"; // Brave hides this often, but sometimes present
+    if ("brave" in navigator || ua.includes("brave")) return "brave"; // Brave hides this often, but sometimes present
+    if (chrome.perplexity != undefined || ua.includes("comet") || ua.includes("perplexity")) return "comet";
     if (ua.includes("firefox")) return "firefox";
     if (ua.includes("chrome")) return "chrome";
     return "unknown-browser";

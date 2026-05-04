@@ -552,6 +552,21 @@ fn handle_control_message(
     };
 
     match message_type {
+        "info.browser.name" => {
+            let browser = detect_browser();
+            let response = json!({
+                                "v": 1,
+                                "type": "browser.name",
+                                "payload": {
+                                    "browser": browser,
+                                }
+                            });
+            let response_str = response.to_string();
+            if _to_extension_tx.blocking_send(response_str).is_err() {
+                error!("[sidecar] Failed to send windows.list to extension");
+            }
+            Ok(true)
+        }
         "focus.window" => {
             if let Some(payload_value) = value.get("payload") {
                 match serde_json::from_value::<focus::FocusWindowPayload>(payload_value.clone()) {

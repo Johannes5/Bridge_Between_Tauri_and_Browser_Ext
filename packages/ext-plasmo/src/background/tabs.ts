@@ -347,15 +347,13 @@ export const openOrFocus = async (options: TabsOpenOrFocusPayload) => {
     return;
   }
 
-  console.log("[bridge-ext] openOrFocus called with:", {
-    url: options.url,
-    matchStrategy: options.matchStrategy,
-    connectionId: options.connectionId
-  });
+  console.log("[bridge-ext] openOrFocus called with:", options);
   
   const target = new URL(options.url);
-  const allTabs = await chrome.tabs.query({});
-
+  let allTabs = await chrome.tabs.query({});
+  if (options.preferWindowId) {
+    allTabs = allTabs.filter(tab => tab.windowId == options.preferWindowId);
+  }
   // Find ALL matching tabs
   const matchingTabs = allTabs.filter((tab) => {
     if (!tab.url) {
