@@ -13,7 +13,7 @@ use log::LevelFilter;
 #[cfg(target_os = "windows")]
 use win_event_hook::events::{Event, NamedEvent};
 
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
