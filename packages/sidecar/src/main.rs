@@ -11,34 +11,25 @@ use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 use log::{info, error, debug};
 use log::LevelFilter;
 #[cfg(target_os = "windows")]
-use windows::Win32::System::Threading::GetCurrentProcessId;
-#[cfg(target_os = "windows")]
 use win_event_hook::events::{Event, NamedEvent};
 
-use sysinfo::{Process, Pid, System, ProcessesToUpdate};
+use sysinfo::{Pid, System};
 const DEFAULT_APP_WS: &str = "ws://127.0.0.1:17342";
 const DEFAULT_DEBUG_PORT: u16 = 17888;
 
 #[cfg(target_os = "windows")]
 use windows::{
-    core::*,
-    Win32::UI::WindowsAndMessaging::{
-        EVENT_OBJECT_CREATE, GetWindowThreadProcessId, WINEVENT_OUTOFCONTEXT,
-    },
-    Win32::System::Threading::GetCurrentThreadId,
-    Win32::Foundation::{HANDLE, HWND},
+    Win32::Foundation::{CloseHandle, HMODULE},
+    Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameA},
+    Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
+    Win32::UI::WindowsAndMessaging::{ OBJID_WINDOW}
 };
 use std::collections::HashMap;
-use std::ffi::c_void;
+use std::ffi::{OsString};
 use std::ops::Deref;
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
-#[cfg(target_os = "windows")]
 use win_event_hook::handles::WindowHandle;
-#[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, OBJID_WINDOW};
-// Global storage: HWND -> creation timestamp (milliseconds)
 
 #[cfg(target_os = "windows")]
 static HWND_CREATION_TIMES: LazyLock<Mutex<HashMap<isize, u64>>> = LazyLock::new(|| Mutex::new(Default::default()));
@@ -57,6 +48,7 @@ fn detect_browser() -> String {
     {
         if let Some(parent_pid) = get_parent_pid() {
             if let Some(name) = get_process_name_by_pid(parent_pid) {
+                info!("BRIDGE_BROWSER found the parent pid of '{}' {}", name, parent_pid);
                 let lower = name.to_lowercase();
                 if lower.contains("chrome.exe") {
                     return "Chrome".to_string();
@@ -158,8 +150,6 @@ fn get_parent_process_name_linux() -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn get_parent_pid() -> Option<u32> {
-    use std::process::Command;
-
     let current_pid = std::process::id();
 
     // Get all ancestor processes (traverse up the tree)
@@ -169,8 +159,6 @@ fn get_parent_pid() -> Option<u32> {
     while depth < 5 { // Check up to 5 levels up
         let s = System::new_all();
         let process = s.process(Pid::from(check_pid as usize))?;
-
-        ;
         let name = process.name().to_str()?.to_string();
 
         let parent_pid: u32 = process.parent()?.as_u32();
@@ -208,24 +196,28 @@ fn get_parent_pid() -> Option<u32> {
 
 #[cfg(target_os = "windows")]
 fn get_process_name_by_pid(pid: u32) -> Option<String> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-
     unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
-        let mut buffer = vec![0u16; 260];
-        let len = K32GetModuleBaseNameW(handle, None, &mut buffer) as usize;
-        if let Err(e) = CloseHandle(handle) {
-            error!("[sidecar] Warning: Failed to close process handle: {:?}", e);
+        let handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).ok()?;
+        let mut hmod = HMODULE::default();
+        let mut lpcb_needed = 0;
+        let mut buffer = vec![0u8; 260];
+        match EnumProcessModules(handle, &mut hmod, 0, &mut lpcb_needed) {
+            Ok(_) => {
+                let len = GetModuleBaseNameA(handle, hmod, &mut buffer);
+                let _ = CloseHandle(handle);
+                if len == 0 {
+                    return None;
+                }
+                buffer.truncate(len as usize);
+            }
+            Err(e) => {
+                error!("EnumProcessModules error: {:?}", e);
+            }
+
+
         }
-        if len == 0 {
-            return None;
-        }
-        buffer.truncate(len);
-        Some(OsString::from_wide(&buffer).to_string_lossy().to_string())
+        let name = OsString::from_encoded_bytes_unchecked(buffer).to_string_lossy().to_string();
+        Some(name.to_lowercase())
     }
 }
 
@@ -297,7 +289,7 @@ async fn main() -> Result<()> {
         };
 
         // install the hook
-        let hook = win_event_hook::WinEventHook::install(config, handler)?;
+        let _hook = win_event_hook::WinEventHook::install(config, handler)?;
         info!("[sidecar] Native window monitor started");
     }
 
@@ -552,7 +544,7 @@ fn handle_control_message(
     };
 
     match message_type {
-        "info.browser.name" => {
+        "browser.name" => {
             let browser = detect_browser();
             let response = json!({
                                 "v": 1,
@@ -594,7 +586,7 @@ fn handle_control_message(
                             let hwnd_times = HWND_CREATION_TIMES.lock().unwrap().clone();
                             let hwnd_times: HashMap<isize, u64> = hwnd_times
                                 .into_iter()
-                                .filter(|(a, b)| windows.iter().find(|w| w.hwnd == *a).is_some())
+                                .filter(|(a, _b)| windows.iter().find(|w| w.hwnd == *a).is_some())
                                 .collect();
                             let response = json!({
                                 "v": 1,

@@ -7,6 +7,7 @@ import { postToNative } from "./background/connection";
 import { deltaManager } from "./background/delta-manager";
 import { state } from "./background/state";
 import { openOrFocus, restoreTabs, saveAndCloseActiveWindow, sendCurrentWindowTabs } from "./background/tabs";
+import { BrowserInfoPayloadSchema } from "shared-proto/src/schemas/browser"
 
 
 const HOST_NAME = "com.bridge.app";
@@ -101,6 +102,7 @@ const connectNative = () => {
   }
   try {
     state.nativePort = chrome.runtime.connectNative(HOST_NAME);
+    postToNative({ v: 1, type: "browser.name", payload: {} })
   } catch (error) {
     console.warn("[bridge-ext] connectNative failed:", error);
     scheduleReconnect();
@@ -143,6 +145,16 @@ const onFromNative = async (raw: unknown) => {
 
   try {
     switch (type) {
+      case "browser.name": {
+        const status = BrowserInfoPayloadSchema.safeParse(payload);
+        console.log(status)
+        if (status.success) {
+          state.browser = status.data.browser
+        } else {
+          console.warn("[bridge-ext] Browser query failed", status.error)
+        }
+        break;
+      }
       case "presence.status": {
         // We no longer rely on the app to assign us an ID. We authorize ourselves.
         const status = PresenceStatusPayloadSchema.safeParse(payload);

@@ -2,7 +2,7 @@ import type { WindowInfo } from "shared-proto";
 
 class GlobalState {
   private static instance: GlobalState;
-  
+
   public nativePort: chrome.runtime.Port | null = null;
   public connectionId: string | null = null;
   public browser: string | null = null;
@@ -12,6 +12,7 @@ class GlobalState {
 
   private constructor() {
     this.connectionId = this.generateId();
+    // initial detection, detected again on sidecar with process name for accuracy
     this.browser = this.detectBrowser();
   }
 
