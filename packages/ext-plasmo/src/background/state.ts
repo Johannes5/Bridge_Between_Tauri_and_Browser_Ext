@@ -23,13 +23,13 @@ class GlobalState {
 
   private detectBrowser(): string {
     const ua = navigator.userAgent.toLowerCase()
-    if (chrome.edge != undefined || ua.includes("edg/")) return "edge";
-    if (ua.includes("opr/") || ua.includes("opera/")) return "opera";
-    if ("brave" in navigator || ua.includes("brave")) return "brave"; // Brave hides this often, but sometimes present
-    if (chrome.perplexity != undefined || ua.includes("comet") || ua.includes("perplexity")) return "comet";
-    if (ua.includes("firefox")) return "firefox";
-    if (ua.includes("chrome")) return "chrome";
-    return "unknown-browser";
+    if (chrome.edge != undefined || ua.includes("edg/")) return "Edge";
+    if (ua.includes("opr/") || ua.includes("opera/")) return "Opera";
+    if ("brave" in navigator || ua.includes("brave")) return "Brave"; // Brave hides this often, but sometimes present
+    if (chrome.perplexity != undefined || ua.includes("comet") || ua.includes("perplexity")) return "Comet";
+    if (ua.includes("firefox")) return "Firefox";
+    if (ua.includes("chrome")) return "Chrome";
+    return "Unknown";
   }
 
   public static getInstance(): GlobalState {

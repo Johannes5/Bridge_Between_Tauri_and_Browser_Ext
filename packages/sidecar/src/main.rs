@@ -58,6 +58,8 @@ fn detect_browser() -> String {
                     return "Brave".to_string();
                 } else if lower.contains("comet.exe") {
                     return "Comet".to_string();
+                } else if lower.contains("opera.exe") {
+                    return "Opera".to_string();
                 }
                 return name;
             }
@@ -79,6 +81,8 @@ fn detect_browser() -> String {
                 return "Comet".to_string();
             } else if lower.contains("firefox") {
                 return "Firefox".to_string();
+            } else if lower.contains("opera") {
+                return "Opera".to_string();
             }
             return name;
         }
@@ -96,6 +100,8 @@ fn detect_browser() -> String {
                 return "Brave".to_string();
             } else if lower.contains("firefox") {
                 return "Firefox".to_string();
+            } else if lower.contains("opera") {
+                return "Opera".to_string();
             }
             return name;
         }
