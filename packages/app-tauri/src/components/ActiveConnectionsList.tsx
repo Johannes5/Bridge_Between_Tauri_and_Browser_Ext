@@ -43,6 +43,8 @@ import type { TabDescriptor } from "@bridge/shared-proto";
 import { BrowserIcon } from "./BrowserIcon";
 import { DateGroupingToggle } from "./DateGroupingToggle";
 import { DateStampBadge } from "./DateStampBadge";
+import { MasonryWidthControl } from "./MasonryWidthControl";
+import { TabHoverTooltip } from "./TabHoverTooltip";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { groupItemsByDay } from "../utils/dateGroups";
 
@@ -180,7 +182,12 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<ViewMode>("list");
   const [groupByDate, setGroupByDate] = React.useState(false);
+  const [columnWidth, setColumnWidth] = React.useState(320);
   const firstSeenRef = React.useRef(new Map<string, number>());
+  const masonryStyle = React.useMemo(
+    () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
+    [columnWidth]
+  );
 
   const sessionWindows = React.useMemo(() => {
     const windows = snapshots.flatMap((snapshot) => getSnapshotWindows(snapshot)).map((window) => {
@@ -241,6 +248,9 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
+          {viewMode === "grid" && (
+            <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />
+          )}
         </div>
       </div>
 
@@ -261,6 +271,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
       {!groupByDate && viewMode === "grid" && (
         <CurrentSessionGrid
           windows={sessionWindows}
+          masonryStyle={masonryStyle}
           isSending={isSending}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
@@ -271,6 +282,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
         <CurrentSessionDateGroups
           windows={sessionWindows}
           viewMode={viewMode}
+          masonryStyle={masonryStyle}
           isSending={isSending}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
@@ -366,6 +378,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
 
 const CurrentSessionGrid: React.FC<{
   windows: CurrentSessionWindow[];
+  masonryStyle: React.CSSProperties;
   isSending: boolean;
   onSave: (
     tabs: TabDescriptor[],
@@ -375,13 +388,13 @@ const CurrentSessionGrid: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ windows, isSending, onSave, onFocus }) => {
+}> = ({ windows, masonryStyle, isSending, onSave, onFocus }) => {
   if (windows.length === 0) {
     return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
   }
 
   return (
-    <div className="masonry-layout">
+    <div className="masonry-layout" style={masonryStyle}>
       {windows.map((window) => (
         <WindowCard
           key={window.key}
@@ -399,6 +412,7 @@ const CurrentSessionGrid: React.FC<{
 const CurrentSessionDateGroups: React.FC<{
   windows: CurrentSessionWindow[];
   viewMode: ViewMode;
+  masonryStyle: React.CSSProperties;
   isSending: boolean;
   onSave: (
     tabs: TabDescriptor[],
@@ -408,7 +422,7 @@ const CurrentSessionDateGroups: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ windows, viewMode, isSending, onSave, onFocus }) => {
+}> = ({ windows, viewMode, masonryStyle, isSending, onSave, onFocus }) => {
   const groupedWindows = React.useMemo(
     () =>
       groupItemsByDay(windows, (window) => window.firstSeenAt ?? window.lastUpdate).map((group) => ({
@@ -430,7 +444,7 @@ const CurrentSessionDateGroups: React.FC<{
         <section key={group.dayStart} className="space-y-6">
           <DateStampBadge timestamp={group.dayStart} />
           {viewMode === "grid" ? (
-            <div className="masonry-layout">
+            <div className="masonry-layout" style={masonryStyle}>
               {group.items.map((window) => (
                 <WindowCard
                   key={window.key}
@@ -658,10 +672,9 @@ const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSe
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
       aria-label={`Focus tab ${tab.title ?? tab.url ?? "Untitled"}`}
-      title={tab.url ?? undefined}
       onClick={handleFocus}
       onKeyDown={handleKey}
-      className={`group flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors ${
+      className={`group relative flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors ${
         disabled
           ? "opacity-50 cursor-not-allowed"
           : "cursor-pointer hover:bg-purple-500/10 focus:bg-purple-500/10 focus:outline-hidden"
@@ -699,6 +712,7 @@ const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSe
           <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
       </div>
+      <TabHoverTooltip title={tab.title ?? "Untitled"} url={tab.url} />
     </li>
   );
 };

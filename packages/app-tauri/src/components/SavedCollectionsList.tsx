@@ -6,6 +6,8 @@ import { getSavedWindowLabel } from "../utils/savedWindowLabel";
 import { BrowserIcon } from "./BrowserIcon";
 import { DateGroupingToggle } from "./DateGroupingToggle";
 import { DateStampBadge } from "./DateStampBadge";
+import { MasonryWidthControl } from "./MasonryWidthControl";
+import { TabHoverTooltip } from "./TabHoverTooltip";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { groupItemsByDay } from "../utils/dateGroups";
 
@@ -33,7 +35,12 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   const [editValue, setEditValue] = React.useState("");
   const [viewMode, setViewMode] = React.useState<ViewMode>("list");
   const [groupByDate, setGroupByDate] = React.useState(false);
+  const [columnWidth, setColumnWidth] = React.useState(320);
   const editInputRef = React.useRef<HTMLInputElement>(null);
+  const masonryStyle = React.useMemo(
+    () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
+    [columnWidth]
+  );
 
   React.useEffect(() => {
     if (editingId) {
@@ -188,7 +195,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         </div>
         <ul className="space-y-2 mb-3">
           {visibleTabs.map((tab, idx) => (
-            <li key={`${entry.id}-${tab.id ?? idx}`} className="flex items-center justify-between text-sm py-1 border-b border-[#222222] last:border-0 hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors group">
+            <li key={`${entry.id}-${tab.id ?? idx}`} className="group relative flex items-center justify-between text-sm py-1 border-b border-[#222222] last:border-0 hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors">
               <div className="flex items-start gap-2 min-w-0 flex-1 pr-4">
                 {tab.favIconUrl ? (
                   <img
@@ -203,7 +210,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
                   <Globe className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
                 )}
                 <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-gray-300 truncate" title={tab.title ?? undefined}>
+                  <span className="text-gray-300 truncate">
                     {tab.title ?? tab.url ?? "Untitled"}
                   </span>
                   {tab.url && <span className="text-gray-500 text-xs truncate font-mono">{tab.url}</span>}
@@ -221,6 +228,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
                   <span className="text-gray-600 text-xs">No URL</span>
                 )}
               </div>
+              <TabHoverTooltip title={tab.title ?? "Untitled"} url={tab.url} />
             </li>
           ))}
         </ul>
@@ -251,6 +259,9 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
+          {viewMode === "grid" && (
+            <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />
+          )}
         </div>
         <button
           className="text-gray-400 hover:text-gray-200 hover:bg-[#1a1a1a] text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 rounded px-2 py-1"
@@ -268,7 +279,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
             <section key={group.dayStart} className="space-y-6">
               <DateStampBadge timestamp={group.dayStart} />
               {viewMode === "grid" ? (
-                <div className="masonry-layout">
+                <div className="masonry-layout" style={masonryStyle}>
                   {group.items.map((entry) => renderCollection(entry, "grid"))}
                 </div>
               ) : (
@@ -284,7 +295,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
           {collections.map((entry) => renderCollection(entry, "list"))}
         </div>
       ) : (
-        <div className="masonry-layout">
+        <div className="masonry-layout" style={masonryStyle}>
           {collections.map((entry) => renderCollection(entry, "grid"))}
         </div>
       )}
