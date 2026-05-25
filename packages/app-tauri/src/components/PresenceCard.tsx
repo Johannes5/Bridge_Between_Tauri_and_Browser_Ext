@@ -22,7 +22,7 @@ export const PresenceCard: React.FC<PresenceCardProps> = ({
       <div className="grid grid-cols-2 gap-x-8 gap-y-3 mb-6">
         <div>
           <span className="block text-xs uppercase tracking-wider text-gray-500 mb-1">App</span>
-          <span className="font-mono text-sm text-blue-300">{presence.app ?? "unknown"}</span>
+          <span className="font-mono text-sm text-gray-300">{presence.app ?? "unknown"}</span>
         </div>
         <div>
           <span className="block text-xs uppercase tracking-wider text-gray-500 mb-1">Extension</span>
@@ -45,14 +45,14 @@ export const PresenceCard: React.FC<PresenceCardProps> = ({
         <button 
           onClick={onRequestSnapshot} 
           disabled={isSending}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors text-sm"
+          className="px-4 py-2 bg-gray-700 hover:bg-purple-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors text-sm"
         >
           Request Tabs Snapshot
         </button>
         <button 
           onClick={onOpenExample} 
           disabled={isSending}
-          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 rounded-md font-medium transition-colors text-sm border border-gray-600"
+          className="px-4 py-2 bg-gray-700 hover:bg-purple-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 rounded-md font-medium transition-colors text-sm border border-gray-600"
         >
           Open Example Page
         </button>

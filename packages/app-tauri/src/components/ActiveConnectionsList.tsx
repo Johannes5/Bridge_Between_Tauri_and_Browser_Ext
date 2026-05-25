@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import type { BrowserTabSnapshot } from "../types";
 import type { TabDescriptor } from "@bridge/shared-proto";
 import { BrowserIcon } from "./BrowserIcon";
+import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 
 // Pool of fun icons used as the per-window emblem. In the real app the user
 // will be able to pick one from a library; for now we hash the windowId so
@@ -100,6 +101,57 @@ const formatTime = (ms?: number | null): string => {
   return new Date(ms).toLocaleTimeString();
 };
 
+interface CurrentSessionWindow {
+  key: string;
+  windowId?: number;
+  windowIndex?: number;
+  label?: string;
+  tabs: TabDescriptor[];
+  browser: string;
+  connectionId: string;
+  lastUpdate: number;
+}
+
+const getSnapshotWindows = (snapshot: BrowserTabSnapshot): CurrentSessionWindow[] => {
+  const map = new Map<number, TabDescriptor[]>();
+  const orphans: TabDescriptor[] = [];
+
+  for (const tab of snapshot.payload.tabs) {
+    if (tab.windowId != null) {
+      const list = map.get(tab.windowId) ?? [];
+      list.push(tab);
+      map.set(tab.windowId, list);
+    } else {
+      orphans.push(tab);
+    }
+  }
+
+  const windows: CurrentSessionWindow[] = Array.from(map.keys())
+    .sort((a, b) => a - b)
+    .map((windowId, idx) => ({
+      key: `${snapshot.connectionId}-${windowId}`,
+      windowId,
+      windowIndex: idx + 1,
+      tabs: map.get(windowId) ?? [],
+      browser: snapshot.browser,
+      connectionId: snapshot.connectionId,
+      lastUpdate: snapshot.lastUpdate
+    }));
+
+  if (orphans.length > 0) {
+    windows.push({
+      key: `${snapshot.connectionId}-orphans`,
+      label: "Other Tabs",
+      tabs: orphans,
+      browser: snapshot.browser,
+      connectionId: snapshot.connectionId,
+      lastUpdate: snapshot.lastUpdate
+    });
+  }
+
+  return windows;
+};
+
 interface ActiveConnectionsListProps {
   snapshots: BrowserTabSnapshot[];
   isSending: boolean;
@@ -122,6 +174,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   onFocusTab
 }) => {
   const [isInitializing, setIsInitializing] = React.useState(true);
+  const [viewMode, setViewMode] = React.useState<ViewMode>("list");
 
   React.useEffect(() => {
     if (extensionStatus === "online") {
@@ -138,7 +191,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
     if (showLoader) {
       return (
         <div className="flex flex-col items-center justify-center h-64">
-          <div className="w-10 h-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+          <div className="w-10 h-10 border-4 border-gray-700 border-t-gray-300 rounded-full animate-spin mb-4"></div>
           <p className="text-gray-400 font-medium animate-pulse">
             {extensionStatus === "online" ? "Syncing tabs..." : "Waiting for extension connection..."}
           </p>
@@ -157,17 +210,40 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   }
 
   return (
-    <div className="space-y-8">
-      {snapshots.map((snapshot) => (
-        <ConnectionCard
-          key={snapshot.connectionId}
-          snapshot={snapshot}
+    <section className="space-y-4">
+      <div className="flex justify-end">
+        <ViewModeToggle value={viewMode} onChange={setViewMode} />
+      </div>
+
+      {viewMode === "list" && (
+        <div className="space-y-8">
+          {snapshots.map((snapshot) => (
+            <ConnectionCard
+              key={snapshot.connectionId}
+              snapshot={snapshot}
+              isSending={isSending}
+              onSave={onSaveTabs}
+              onFocus={onFocusTab}
+            />
+          ))}
+        </div>
+      )}
+
+      {viewMode === "grid" && (
+        <CurrentSessionGrid
+          snapshots={snapshots}
           isSending={isSending}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
-      ))}
-    </div>
+      )}
+
+      {viewMode === "time" && (
+        <TimeBasedPlaceholder>
+          Time-based current-session view is ready for the grouping rules once you define them.
+        </TimeBasedPlaceholder>
+      )}
+    </section>
   );
 };
 
@@ -255,6 +331,114 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
   );
 };
 
+const CurrentSessionGrid: React.FC<{
+  snapshots: BrowserTabSnapshot[];
+  isSending: boolean;
+  onSave: (
+    tabs: TabDescriptor[],
+    meta: { browser: string; connectionId: string; windowId?: number | null }
+  ) => void;
+  onFocus: (
+    tab: TabDescriptor,
+    options?: { connectionId?: string; preferWindowId?: number }
+  ) => void;
+}> = ({ snapshots, isSending, onSave, onFocus }) => {
+  const windows = React.useMemo(
+    () => snapshots.flatMap((snapshot) => getSnapshotWindows(snapshot)),
+    [snapshots]
+  );
+
+  if (windows.length === 0) {
+    return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
+  }
+
+  return (
+    <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+      {windows.map((window) => (
+        <WindowGridCard
+          key={window.key}
+          window={window}
+          isSending={isSending}
+          onSave={onSave}
+          onFocus={onFocus}
+        />
+      ))}
+    </div>
+  );
+};
+
+const WindowGridCard: React.FC<{
+  window: CurrentSessionWindow;
+  isSending: boolean;
+  onSave: (
+    tabs: TabDescriptor[],
+    meta: { browser: string; connectionId: string; windowId?: number | null }
+  ) => void;
+  onFocus: (
+    tab: TabDescriptor,
+    options?: { connectionId?: string; preferWindowId?: number }
+  ) => void;
+}> = ({ window, isSending, onSave, onFocus }) => {
+  const WindowIcon = window.windowId != null ? getWindowIcon(window.windowId) : null;
+  const displayLabel = window.label ?? `Window ${window.windowIndex ?? "?"}`;
+
+  return (
+    <article className="mb-4 break-inside-avoid rounded-xl border border-[#16161a] bg-[#141414] p-3">
+      <div className="flex items-start gap-2">
+        <BrowserIcon browser={window.browser} className="w-4 h-4 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-100 truncate">{displayLabel}</h3>
+            {WindowIcon && <WindowIcon className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 font-mono">
+            <span>{window.browser}</span>
+            <span>•</span>
+            <span>{window.tabs.length} tab{window.tabs.length === 1 ? "" : "s"}</span>
+            <span>•</span>
+            <span>{formatTime(window.lastUpdate)}</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            onSave(window.tabs, {
+              browser: window.browser,
+              connectionId: window.connectionId,
+              windowId: window.windowId ?? null
+            })
+          }
+          disabled={window.tabs.length === 0}
+          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-purple-100 hover:bg-purple-500/12 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Save all tabs in this window"
+        >
+          <Save className="w-3.5 h-3.5" aria-hidden="true" />
+          <span>Save</span>
+        </button>
+      </div>
+
+      <ul className="mt-3 space-y-1">
+        {window.tabs.map((tab) => (
+          <TabRow
+            key={`${tab.id ?? tab.url}`}
+            tab={tab}
+            connectionId={window.connectionId}
+            preferWindowId={window.windowId}
+            isSending={isSending}
+            onFocus={onFocus}
+          />
+        ))}
+      </ul>
+    </article>
+  );
+};
+
+const TimeBasedPlaceholder: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="rounded-xl border border-dashed border-gray-700 bg-gray-900/20 px-4 py-8 text-center">
+    <p className="text-sm text-gray-400">{children}</p>
+  </div>
+);
+
 interface WindowGroupProps {
   /** Sequential 1-based index used to render "Window N". Required when windowId is given. */
   windowIndex?: number;
@@ -297,7 +481,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
   return (
     <div>
       {/* Window header */}
-      <div className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-700/30 transition-colors">
+      <div className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-purple-500/10 transition-colors">
         <BrowserIcon browser={browser} className="w-4 h-4" />
         <span className="text-gray-100 font-medium">{displayLabel}</span>
         {WindowIcon && <WindowIcon className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />}
@@ -307,7 +491,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
             type="button"
             onClick={() => onSave(tabs, { browser, connectionId, windowId: windowId ?? null })}
             disabled={tabs.length === 0}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-purple-100 hover:bg-purple-500/12 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="Save all tabs in this window"
           >
             <Save className="w-3.5 h-3.5" aria-hidden="true" />
@@ -316,7 +500,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
           <button
             type="button"
             onClick={handleRenameWindow}
-            className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 rounded transition-colors"
+            className="p-1 text-gray-400 hover:text-purple-100 hover:bg-purple-500/12 rounded transition-colors"
             title="Rename / change icon"
             aria-label={`Rename ${displayLabel}`}
           >
@@ -386,7 +570,7 @@ const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSe
       className={`group flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors ${
         disabled
           ? "opacity-50 cursor-not-allowed"
-          : "cursor-pointer hover:bg-gray-700/40 focus:bg-gray-700/40 focus:outline-hidden"
+          : "cursor-pointer hover:bg-purple-500/10 focus:bg-purple-500/10 focus:outline-hidden"
       }`}
     >
       {tab.favIconUrl ? (
@@ -414,7 +598,7 @@ const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSe
         <button
           type="button"
           onClick={handleRename}
-          className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 rounded transition-colors"
+          className="p-1 text-gray-400 hover:text-purple-100 hover:bg-purple-500/12 rounded transition-colors"
           title="Rename / change icon"
           aria-label="Rename tab"
         >

@@ -22,14 +22,14 @@ import { ErrorBoundary } from 'react-error-boundary';
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
   return (
-    <div className="p-8 text-center text-red-500 min-h-screen flex flex-col items-center justify-center" style={{ backgroundColor: "#1d1e1e" }}>
+    <div className="p-8 text-center text-red-500 min-h-screen flex flex-col items-center justify-center" style={{ backgroundColor: "#181818" }}>
       <h2 className="text-2xl font-bold mb-4">Something went wrong</h2>
       <pre className="text-sm bg-gray-800 p-4 rounded mb-4 overflow-auto max-w-2xl">
         {error.message}
       </pre>
       <button
         onClick={resetErrorBoundary}
-        className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 text-white transition-colors"
+        className="px-4 py-2 bg-gray-700 rounded hover:bg-purple-500/15 text-white transition-colors"
       >
         Try again
       </button>

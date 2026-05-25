@@ -15,13 +15,13 @@ export const BridgeLog: React.FC<BridgeLogProps> = ({ entries }) => {
         <div className="h-64 overflow-y-auto font-mono text-xs scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
           <ul className="space-y-1">
             {entries.map((entry, index) => (
-              <li key={`${entry.type}-${index}`} className="flex gap-4 hover:bg-white/5 p-1 rounded transition-colors break-all">
+              <li key={`${entry.type}-${index}`} className="flex gap-4 hover:bg-purple-500/10 p-1 rounded transition-colors break-all">
                 <span className="text-gray-500 shrink-0 select-none">
                   {new Date(entry.at).toLocaleTimeString()}
                 </span>
                 <span className={`shrink-0 font-bold ${
                   entry.type.includes('error') ? 'text-red-400' :
-                  entry.type.includes('query') ? 'text-blue-400' :
+                  entry.type.includes('query') ? 'text-gray-300' :
                   entry.type.includes('status') ? 'text-green-400' :
                   'text-purple-400'
                 }`}>
