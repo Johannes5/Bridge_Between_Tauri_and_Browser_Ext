@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { EnvelopeSchema, type Envelope, type TabsListPayload, type TabsDeltaPayload } from "shared-proto";
 import type { PresenceState, LogEntry, SavedTabCollection, BrowserTabSnapshot } from "../types";
 import { dispatch, type AllHandlerDeps } from "./registry";
+import { applyDelta } from "./tab-delta";
 
 const SAVED_TABS_KEY = "bridge:saved-tab-collections";
 
@@ -71,31 +72,7 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
     const existing = state.browserTabs.get(connectionId);
     if (!existing) return {};
 
-    let tabs = [...existing.payload.tabs];
-
-    if (payload.removed.length > 0) {
-      const removedSet = new Set(payload.removed);
-      tabs = tabs.filter(t => t.id == null || !removedSet.has(t.id));
-    }
-
-    const tabMap = new Map<number, number>();
-    tabs.forEach((t, i) => { if (t.id != null) tabMap.set(t.id, i); });
-
-    const upserts = [...payload.added, ...payload.updated];
-    for (const tab of upserts) {
-      if (tab.id == null) continue;
-      if (tabMap.has(tab.id)) {
-        tabs[tabMap.get(tab.id)!] = tab;
-      } else {
-        tabs.push(tab);
-      }
-    }
-
-    tabs.sort((a, b) => {
-      if (a.windowId !== b.windowId) return (a.windowId ?? 0) - (b.windowId ?? 0);
-      return (a.index ?? 0) - (b.index ?? 0);
-    });
-
+    const tabs = applyDelta(existing.payload.tabs, payload);
     const updated = new Map(state.browserTabs);
     updated.set(connectionId, { ...existing, lastUpdate: Date.now(), payload: { ...existing.payload, tabs } });
     return { browserTabs: updated };
