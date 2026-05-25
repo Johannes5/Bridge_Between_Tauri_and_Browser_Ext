@@ -10,8 +10,10 @@ import { PresenceCard } from "./components/PresenceCard";
 import { ActiveConnectionsList } from "./components/ActiveConnectionsList";
 import { SavedCollectionsList } from "./components/SavedCollectionsList";
 import { BridgeLog } from "./components/BridgeLog";
+import { CollapsibleSection } from "./components/CollapsibleSection";
 import { useBridgeStore } from "./store";
 import type { SavedTabCollection } from "./types";
+import { formatSavedWindowLabel } from "./utils/savedWindowLabel";
 
 const randomId = () => `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 
@@ -20,7 +22,7 @@ import { ErrorBoundary } from 'react-error-boundary';
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
   return (
-    <div className="p-8 text-center text-red-500 bg-gray-900 min-h-screen flex flex-col items-center justify-center">
+    <div className="p-8 text-center text-red-500 min-h-screen flex flex-col items-center justify-center" style={{ backgroundColor: "#1d1e1e" }}>
       <h2 className="text-2xl font-bold mb-4">Something went wrong</h2>
       <pre className="text-sm bg-gray-800 p-4 rounded mb-4 overflow-auto max-w-2xl">
         {error.message}
@@ -48,6 +50,7 @@ const App: React.FC = () => {
     sendEnvelope,
     addSavedCollection,
     removeSavedCollection,
+    renameSavedCollection,
     clearSavedCollections,
     loadSavedCollections,
     startListening,
@@ -96,12 +99,6 @@ const App: React.FC = () => {
     return Array.from(browserTabs.values())[0]?.connectionId;
   }, [browserTabs]);
 
-  const inferLabel = React.useCallback((tabs: TabDescriptor[]): string | null => {
-    if (!tabs.length) return null;
-    return tabs.find((t) => t.title)?.title ?? tabs.find((t) => t.url)?.url ?? null;
-  }, []);
-
-  // Handlers
   const handleRequestTabs = () => {
     sendEnvelope({
       v: 1,
@@ -187,21 +184,18 @@ const App: React.FC = () => {
       windowId?: number | null
     }
   ) => {
-    const payload = {
-      id: randomId(),
-      windowId: meta.windowId ?? null,
-      tabs: tabs,
-      reason: "app-manual",
-      source: "app" as const,
-      savedAt: Date.now(),
-      browser: meta.browser,
-      connectionId: meta.connectionId,
-      label: null
-    };
+    const savedAt = Date.now();
 
     addSavedCollection({
-       ...payload,
-       label: inferLabel(payload.tabs)
+      id: randomId(),
+      windowId: meta.windowId ?? null,
+      tabs,
+      reason: "app-manual",
+      source: "app",
+      savedAt,
+      browser: meta.browser,
+      connectionId: meta.connectionId,
+      label: formatSavedWindowLabel(savedAt),
     });
     toast.success("Saved tabs to collection");
   };
@@ -245,42 +239,39 @@ const App: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto p-8 font-sans text-gray-100">
-      <header className="mb-8 text-center">
-        <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">
-          Bridge Dev Console
-        </h1>
-        <p className="text-gray-400">
-          Inspect the desktop ⇄ extension bridge and trigger cross-process actions.
-        </p>
-      </header>
+      <div>
+        <CollapsibleSection title="Current Session" defaultOpen>
+          <ActiveConnectionsList
+            snapshots={browserSnapshots}
+            isSending={isSending}
+            extensionStatus={presence.extension}
+            onSaveTabs={handleSaveTabs}
+            onFocusTab={handleOpenTab}
+          />
+        </CollapsibleSection>
 
-      <div className="space-y-8">
-        <PresenceCard
-          presence={presence}
-          isSending={isSending}
-          error={error}
-          onRequestSnapshot={handleRequestTabs}
-          onOpenExample={handleOpenExample}
-        />
+        <CollapsibleSection title="Saved Tab Collections" defaultOpen className="mt-16">
+          <SavedCollectionsList
+            collections={savedCollections}
+            browserTabs={browserTabs}
+            onClear={clearSavedCollections}
+            onRemove={removeSavedCollection}
+            onRename={renameSavedCollection}
+            onRestore={handleRestoreSavedCollection}
+            onOpenTab={handleOpenTab}
+          />
+        </CollapsibleSection>
 
-        <ActiveConnectionsList
-          snapshots={browserSnapshots}
-          isSending={isSending}
-          extensionStatus={presence.extension}
-          onSaveTabs={handleSaveTabs}
-          onFocusTab={handleOpenTab}
-        />
-
-        <SavedCollectionsList
-          collections={savedCollections}
-          browserTabs={browserTabs}
-          onClear={clearSavedCollections}
-          onRemove={removeSavedCollection}
-          onRestore={handleRestoreSavedCollection}
-          onOpenTab={handleOpenTab}
-        />
-
-        <BridgeLog entries={logEntries} />
+        <CollapsibleSection title="Presence & Bridge Log" className="mt-8">
+          <PresenceCard
+            presence={presence}
+            isSending={isSending}
+            error={error}
+            onRequestSnapshot={handleRequestTabs}
+            onOpenExample={handleOpenExample}
+          />
+          <BridgeLog entries={logEntries} />
+        </CollapsibleSection>
       </div>
       <Toaster position="bottom-right" theme="dark" />
     </div>

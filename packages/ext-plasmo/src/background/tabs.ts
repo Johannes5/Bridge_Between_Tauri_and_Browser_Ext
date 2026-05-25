@@ -53,7 +53,7 @@ export const saveAndCloseActiveWindow = async () => {
       console.warn("[bridge-ext] No focused window available to save");
       return;
     }
-    const { windowId, tabs, title, payload } = await resolveWindowSnapshot(focusedWindow);
+    const { windowId, tabs, payload } = await resolveWindowSnapshot(focusedWindow);
 
     if (!tabs.length) {
       console.warn("[bridge-ext] active window has no tabs to save");
@@ -63,7 +63,6 @@ export const saveAndCloseActiveWindow = async () => {
     const savedPayload = TabsSavedPayloadSchema.parse({
       ...payload,
       savedAt: Date.now(),
-      label: title ?? tabs[0]?.title ?? tabs[0]?.url ?? undefined,
       source: "extension",
       reason: "extension-action",
       connectionId: state.connectionId ?? undefined,

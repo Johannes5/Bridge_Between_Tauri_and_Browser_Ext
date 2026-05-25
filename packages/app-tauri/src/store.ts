@@ -17,6 +17,7 @@ import type {
   SavedTabCollection, 
   BrowserTabSnapshot 
 } from "./types";
+import { formatSavedWindowLabel } from "./utils/savedWindowLabel";
 
 const SAVED_TABS_KEY = "bridge:saved-tab-collections";
 
@@ -39,6 +40,7 @@ interface BridgeState {
   loadSavedCollections: () => void;
   addSavedCollection: (entry: SavedTabCollection) => void;
   removeSavedCollection: (id: string) => void;
+  renameSavedCollection: (id: string, label: string) => void;
   clearSavedCollections: () => void;
 
   // Bridge Actions
@@ -194,6 +196,21 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
     });
   },
 
+  renameSavedCollection: (id, label) => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+
+    set((state) => {
+      const updated = state.savedCollections.map((collection) =>
+        collection.id === id ? { ...collection, label: trimmed } : collection
+      );
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(SAVED_TABS_KEY, JSON.stringify(updated));
+      }
+      return { savedCollections: updated };
+    });
+  },
+
   clearSavedCollections: () => {
     set({ savedCollections: [] });
     if (typeof window !== "undefined") {
@@ -251,12 +268,13 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
           case "tabs.save": {
             const payload = TabsSavedPayloadSchema.parse(envelope.payload);
             // We need to convert payload to SavedTabCollection
+            const savedAt = payload.savedAt ?? Date.now();
             const entry: SavedTabCollection = {
                id: `${Date.now()}-${Math.random()}`,
-               savedAt: payload.savedAt ?? Date.now(),
+               savedAt,
                windowId: payload.windowId,
                source: payload.source,
-               label: payload.label,
+               label: formatSavedWindowLabel(savedAt),
                tabs: payload.tabs,
                browser: payload.browser,
                connectionId: payload.connectionId

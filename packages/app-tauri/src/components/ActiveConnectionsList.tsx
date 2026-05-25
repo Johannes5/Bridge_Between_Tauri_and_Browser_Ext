@@ -1,6 +1,5 @@
 import * as React from "react";
 import {
-  Chrome,
   Globe,
   Pencil,
   Save,
@@ -41,6 +40,7 @@ import {
 import { toast } from "sonner";
 import type { BrowserTabSnapshot } from "../types";
 import type { TabDescriptor } from "@bridge/shared-proto";
+import { BrowserIcon } from "./BrowserIcon";
 
 // Pool of fun icons used as the per-window emblem. In the real app the user
 // will be able to pick one from a library; for now we hash the windowId so
@@ -83,12 +83,6 @@ const WINDOW_ICONS: LucideIcon[] = [
 const getWindowIcon = (windowId: number): LucideIcon => {
   const idx = Math.abs(windowId) % WINDOW_ICONS.length;
   return WINDOW_ICONS[idx] ?? Sparkles;
-};
-
-const getBrowserIcon = (browser: string): LucideIcon => {
-  const b = browser.toLowerCase();
-  if (b.includes("chrome")) return Chrome;
-  return Globe;
 };
 
 const getDomain = (url?: string | null): string => {
@@ -143,7 +137,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   if (snapshots.length === 0) {
     if (showLoader) {
       return (
-        <div className="flex flex-col items-center justify-center h-64 bg-gray-900/50 rounded-xl border border-gray-800">
+        <div className="flex flex-col items-center justify-center h-64">
           <div className="w-10 h-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
           <p className="text-gray-400 font-medium animate-pulse">
             {extensionStatus === "online" ? "Syncing tabs..." : "Waiting for extension connection..."}
@@ -156,17 +150,14 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
     }
 
     return (
-      <section className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
-        <h2 className="text-xl font-semibold mb-2 text-gray-200">Current Window Tabs</h2>
-        <p className="text-gray-500 text-sm">
-          No browser connections yet. Make sure your browser extension is connected.
-        </p>
-      </section>
+      <p className="text-gray-500 text-sm">
+        No browser connections yet. Make sure your browser extension is connected.
+      </p>
     );
   }
 
   return (
-    <>
+    <div className="space-y-8">
       {snapshots.map((snapshot) => (
         <ConnectionCard
           key={snapshot.connectionId}
@@ -176,7 +167,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
           onFocus={onFocusTab}
         />
       ))}
-    </>
+    </div>
   );
 };
 
@@ -214,27 +205,25 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
     [byWindow]
   );
 
-  const BrowserIcon = getBrowserIcon(snapshot.browser);
-
   return (
-    <section className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
+    <section className="space-y-6">
       <div className="flex justify-between items-center mb-1">
-        <h2 className="flex items-center gap-2 text-xl font-semibold text-gray-200">
-          <BrowserIcon className="w-5 h-5 text-gray-400" aria-hidden="true" />
+        <h2 className="flex items-center gap-2 text-base font-semibold text-gray-200">
+          <BrowserIcon browser={snapshot.browser} className="w-4 h-4" />
           <span>Current Tabs - {snapshot.browser}</span>
         </h2>
         <span className="text-xs text-gray-500 font-mono">
           Last update: {formatTime(snapshot.lastUpdate)}
         </span>
       </div>
-      <div className="text-xs text-gray-500 font-mono mb-6">
+      <div className="text-xs text-gray-500 font-mono mb-2">
         Connection: {snapshot.connectionId}
       </div>
 
       {snapshot.payload.tabs.length === 0 ? (
         <p className="text-gray-500 text-sm italic">No tabs available.</p>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3 ml-4">
           {sortedWindowIds.map((windowId, idx) => (
             <WindowGroup
               key={windowId}
@@ -298,7 +287,6 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
   onSave,
   onFocus
 }) => {
-  const BrowserIcon = getBrowserIcon(browser);
   const WindowIcon = windowId != null ? getWindowIcon(windowId) : null;
   const displayLabel = label ?? `Window ${windowIndex ?? "?"}`;
 
@@ -310,7 +298,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
     <div>
       {/* Window header */}
       <div className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-700/30 transition-colors">
-        <BrowserIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+        <BrowserIcon browser={browser} className="w-4 h-4" />
         <span className="text-gray-100 font-medium">{displayLabel}</span>
         {WindowIcon && <WindowIcon className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />}
 
@@ -338,7 +326,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
       </div>
 
       {/* Tab list */}
-      <ul className="mt-1 ml-6 space-y-0.5">
+      <ul className="mt-1 ml-5 space-y-0.5">
         {tabs.map((tab) => (
           <TabRow
             key={`${tab.id ?? tab.url}`}
