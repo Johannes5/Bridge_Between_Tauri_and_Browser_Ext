@@ -615,26 +615,21 @@ const CurrentSessionDateGroups: React.FC<{
         <section key={group.dayStart} className="space-y-6">
           <DateStampBadge timestamp={group.dayStart} />
           {viewMode === "grid" ? (
-            <div className="masonry-layout" style={masonryStyle}>
+            <ul className="masonry-layout list-none m-0 p-0" style={masonryStyle}>
               {group.items.map((item) => (
-                <div
+                <TabRow
                   key={item.key}
-                  className="masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-1"
-                >
-                  <ul className="list-none">
-                    <TabRow
-                      tab={item.tab}
-                      connectionId={item.connectionId}
-                      preferWindowId={item.preferWindowId}
-                      isSending={isSending}
-                      imageDisplayMode={imageDisplayMode}
-                      thumbnailsOnly={thumbnailsOnly}
-                      onFocus={onFocus}
-                    />
-                  </ul>
-                </div>
+                  className="masonry-item"
+                  tab={item.tab}
+                  connectionId={item.connectionId}
+                  preferWindowId={item.preferWindowId}
+                  isSending={isSending}
+                  imageDisplayMode={imageDisplayMode}
+                  thumbnailsOnly={thumbnailsOnly}
+                  onFocus={onFocus}
+                />
               ))}
-            </div>
+            </ul>
           ) : (
             <ul className="space-y-2">
               {group.items.map((item) => (
@@ -832,6 +827,7 @@ interface TabRowProps {
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
   thumbnailsOnly: boolean;
+  className?: string;
   onFocus: (
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
@@ -845,6 +841,7 @@ const TabRow: React.FC<TabRowProps> = ({
   isSending,
   imageDisplayMode,
   thumbnailsOnly,
+  className = "",
   onFocus
 }) => {
   const domain = getDomain(tab.url);
@@ -883,7 +880,7 @@ const TabRow: React.FC<TabRowProps> = ({
         disabled
           ? "opacity-50 cursor-not-allowed"
           : "cursor-pointer hover:bg-purple-500/10 focus:bg-purple-500/10 focus:outline-hidden"
-      }`}
+      } ${className}`}
     >
       <div className={isLargeImage ? "flex flex-col gap-3 px-2 py-2" : "flex items-center gap-3 px-2 py-1.5"}>
         {isLargeImage && (

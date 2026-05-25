@@ -150,7 +150,8 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
     entry: SavedTabCollection,
     tab: TabDescriptor,
     key: string,
-    compactCard = false
+    compactCard = false,
+    className = ""
   ) => {
     const isSmallImage = imageDisplayMode === "small";
     const isLargeImage = imageDisplayMode === "large";
@@ -161,7 +162,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         key={key}
         className={`group relative text-sm ${
           compactCard ? "py-0" : "py-1 border-b border-[#222222] last:border-0"
-        } hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors`}
+        } hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors ${className}`}
       >
         <div className={isLargeImage ? "flex flex-col gap-3 py-1" : "flex items-center justify-between gap-3"}>
           {isLargeImage && (
@@ -407,18 +408,17 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
             <section key={group.dayStart} className="space-y-6">
               <DateStampBadge timestamp={group.dayStart} />
               {viewMode === "grid" ? (
-                <div className="masonry-layout" style={masonryStyle}>
+                <ul className="masonry-layout list-none m-0 p-0" style={masonryStyle}>
                   {group.items.map((item) => (
-                    <div
-                      key={item.key}
-                      className="masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-4"
-                    >
-                      <ul className="space-y-2 mb-0">
-                        {renderTabItem(item.entry, item.tab, item.key, true)}
-                      </ul>
-                    </div>
+                    renderTabItem(
+                      item.entry,
+                      item.tab,
+                      item.key,
+                      true,
+                      "masonry-item"
+                    )
                   ))}
-                </div>
+                </ul>
               ) : (
                 <ul className="space-y-2">
                   {group.items.map((item) => renderTabItem(item.entry, item.tab, item.key, false))}
