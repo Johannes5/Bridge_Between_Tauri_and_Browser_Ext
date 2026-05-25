@@ -24,7 +24,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
   className = ""
 }) => (
   <div
-    className={`inline-flex items-center rounded-lg border border-[#1b1b1f] bg-[#101013] p-1 ${className}`}
+    className={`inline-flex items-center rounded-xl border border-[#3a3a46] bg-[#17171d] p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.28)] ${className}`}
     aria-label="View mode"
   >
     {VIEW_MODES.map(({ value: mode, label, icon: Icon }) => {
@@ -35,10 +35,10 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
           type="button"
           onClick={() => onChange(mode)}
           aria-pressed={selected}
-          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
             selected
-              ? "bg-[#232329] text-gray-100"
-              : "text-gray-400 hover:bg-[#1a1a1f] hover:text-gray-200"
+              ? "bg-white text-black"
+              : "text-gray-300 hover:bg-[#23232c] hover:text-gray-100"
           }`}
         >
           <Icon className="w-3.5 h-3.5" aria-hidden={true} />

@@ -117,6 +117,31 @@ const DEFAULT_IMAGE_DISPLAY_MODE: ImageDisplayMode = "large";
 const DEFAULT_THUMBNAILS_ONLY = true;
 const DEFAULT_COLUMN_WIDTH = 300;
 
+interface ViewSettings {
+  groupByDate: boolean;
+  groupByWindow: boolean;
+  imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
+  columnWidth: number;
+}
+
+const DEFAULT_VIEW_SETTINGS: Record<ViewMode, ViewSettings> = {
+  list: {
+    groupByDate: DEFAULT_GROUP_BY_DATE,
+    groupByWindow: DEFAULT_GROUP_BY_WINDOW,
+    imageDisplayMode: DEFAULT_IMAGE_DISPLAY_MODE,
+    thumbnailsOnly: DEFAULT_THUMBNAILS_ONLY,
+    columnWidth: DEFAULT_COLUMN_WIDTH
+  },
+  grid: {
+    groupByDate: DEFAULT_GROUP_BY_DATE,
+    groupByWindow: DEFAULT_GROUP_BY_WINDOW,
+    imageDisplayMode: DEFAULT_IMAGE_DISPLAY_MODE,
+    thumbnailsOnly: DEFAULT_THUMBNAILS_ONLY,
+    columnWidth: DEFAULT_COLUMN_WIDTH
+  }
+};
+
 const shouldShowPreviewImage = (tab: TabDescriptor, thumbnailsOnly: boolean): boolean =>
   !thumbnailsOnly || tab.previewImageKind === "video-thumbnail";
 
@@ -204,14 +229,13 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 }) => {
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<ViewMode>(DEFAULT_VIEW_MODE);
-  const [groupByDate, setGroupByDate] = React.useState(DEFAULT_GROUP_BY_DATE);
-  const [groupByWindow, setGroupByWindow] = React.useState(DEFAULT_GROUP_BY_WINDOW);
-  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>(
-    DEFAULT_IMAGE_DISPLAY_MODE
+  const [viewSettingsByMode, setViewSettingsByMode] = React.useState<Record<ViewMode, ViewSettings>>(
+    DEFAULT_VIEW_SETTINGS
   );
-  const [thumbnailsOnly, setThumbnailsOnly] = React.useState(DEFAULT_THUMBNAILS_ONLY);
-  const [columnWidth, setColumnWidth] = React.useState(DEFAULT_COLUMN_WIDTH);
   const firstSeenRef = React.useRef(new Map<string, number>());
+  const currentViewSettings = viewSettingsByMode[viewMode];
+  const { groupByDate, groupByWindow, imageDisplayMode, thumbnailsOnly, columnWidth } =
+    currentViewSettings;
   const masonryStyle = React.useMemo(
     () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
     [columnWidth]
@@ -261,19 +285,33 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
     return () => clearTimeout(timer);
   }, [extensionStatus]);
 
+  const updateCurrentViewSettings = React.useCallback(
+    (updater: Partial<ViewSettings> | ((prev: ViewSettings) => ViewSettings)) => {
+      setViewSettingsByMode((prev) => {
+        const current = prev[viewMode];
+        const next =
+          typeof updater === "function" ? updater(current) : { ...current, ...updater };
+        return { ...prev, [viewMode]: next };
+      });
+    },
+    [viewMode]
+  );
+
   const handleGroupByDateChange = React.useCallback((enabled: boolean) => {
-    setGroupByDate(enabled);
-    if (!enabled) {
-      setGroupByWindow(true);
-    }
-  }, []);
+    updateCurrentViewSettings((prev) => ({
+      ...prev,
+      groupByDate: enabled,
+      groupByWindow: enabled ? prev.groupByWindow : true
+    }));
+  }, [updateCurrentViewSettings]);
 
   const handleGroupByWindowChange = React.useCallback((enabled: boolean) => {
-    if (!enabled) {
-      setGroupByDate(true);
-    }
-    setGroupByWindow(enabled);
-  }, []);
+    updateCurrentViewSettings((prev) => ({
+      ...prev,
+      groupByWindow: enabled,
+      groupByDate: enabled ? prev.groupByDate : true
+    }));
+  }, [updateCurrentViewSettings]);
 
   const showLoader = isInitializing || extensionStatus !== "online";
 
@@ -301,7 +339,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 
   return (
     <section className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <DateGroupingToggle enabled={groupByDate} onChange={handleGroupByDateChange} />
           <ControlToggle
@@ -311,19 +349,25 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
             disabled={!groupByDate}
             title={!groupByDate ? "Requires By Date" : undefined}
           />
-          <ViewModeToggle value={viewMode} onChange={setViewMode} />
-          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
+          <ImageDisplayModeToggle
+            value={imageDisplayMode}
+            onChange={(mode) => updateCurrentViewSettings({ imageDisplayMode: mode })}
+          />
           <ControlToggle
             label="Thumbnails Only"
             enabled={thumbnailsOnly}
-            onChange={setThumbnailsOnly}
+            onChange={(enabled) => updateCurrentViewSettings({ thumbnailsOnly: enabled })}
             disabled={imageDisplayMode === "none"}
             title={imageDisplayMode === "none" ? "Requires images" : undefined}
           />
           {viewMode === "grid" && (
-            <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />
+            <MasonryWidthControl
+              value={columnWidth}
+              onChange={(value) => updateCurrentViewSettings({ columnWidth: value })}
+            />
           )}
         </div>
+        <ViewModeToggle value={viewMode} onChange={setViewMode} className="ml-auto" />
       </div>
 
       {!groupByDate && viewMode === "list" && (

@@ -133,4 +133,29 @@ describe("ActiveConnectionsList", () => {
 
     expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeNull();
   });
+
+  it("remembers image settings separately for grid and list", () => {
+    const { container } = renderWith();
+
+    fireEvent.click(screen.getByRole("button", { name: /Thumbnails Only/i }));
+    expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /List/i }));
+    expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /None/i }));
+    expect(screen.getByRole("button", { name: /None/i })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: /Grid/i }));
+    expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Large/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Thumbnails Only/i })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /List/i }));
+    expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeNull();
+    expect(screen.getByRole("button", { name: /None/i })).toHaveAttribute("aria-pressed", "true");
+  });
 });

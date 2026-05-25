@@ -22,6 +22,31 @@ const DEFAULT_IMAGE_DISPLAY_MODE: ImageDisplayMode = "large";
 const DEFAULT_THUMBNAILS_ONLY = true;
 const DEFAULT_COLUMN_WIDTH = 300;
 
+interface ViewSettings {
+  groupByDate: boolean;
+  groupByWindow: boolean;
+  imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
+  columnWidth: number;
+}
+
+const DEFAULT_VIEW_SETTINGS: Record<ViewMode, ViewSettings> = {
+  list: {
+    groupByDate: DEFAULT_GROUP_BY_DATE,
+    groupByWindow: DEFAULT_GROUP_BY_WINDOW,
+    imageDisplayMode: DEFAULT_IMAGE_DISPLAY_MODE,
+    thumbnailsOnly: DEFAULT_THUMBNAILS_ONLY,
+    columnWidth: DEFAULT_COLUMN_WIDTH
+  },
+  grid: {
+    groupByDate: DEFAULT_GROUP_BY_DATE,
+    groupByWindow: DEFAULT_GROUP_BY_WINDOW,
+    imageDisplayMode: DEFAULT_IMAGE_DISPLAY_MODE,
+    thumbnailsOnly: DEFAULT_THUMBNAILS_ONLY,
+    columnWidth: DEFAULT_COLUMN_WIDTH
+  }
+};
+
 const shouldShowPreviewImage = (tab: TabDescriptor, thumbnailsOnly: boolean): boolean =>
   !thumbnailsOnly || tab.previewImageKind === "video-thumbnail";
 
@@ -55,14 +80,13 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
   const [viewMode, setViewMode] = React.useState<ViewMode>(DEFAULT_VIEW_MODE);
-  const [groupByDate, setGroupByDate] = React.useState(DEFAULT_GROUP_BY_DATE);
-  const [groupByWindow, setGroupByWindow] = React.useState(DEFAULT_GROUP_BY_WINDOW);
-  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>(
-    DEFAULT_IMAGE_DISPLAY_MODE
+  const [viewSettingsByMode, setViewSettingsByMode] = React.useState<Record<ViewMode, ViewSettings>>(
+    DEFAULT_VIEW_SETTINGS
   );
-  const [thumbnailsOnly, setThumbnailsOnly] = React.useState(DEFAULT_THUMBNAILS_ONLY);
-  const [columnWidth, setColumnWidth] = React.useState(DEFAULT_COLUMN_WIDTH);
   const editInputRef = React.useRef<HTMLInputElement>(null);
+  const currentViewSettings = viewSettingsByMode[viewMode];
+  const { groupByDate, groupByWindow, imageDisplayMode, thumbnailsOnly, columnWidth } =
+    currentViewSettings;
   const masonryStyle = React.useMemo(
     () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
     [columnWidth]
@@ -74,6 +98,18 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
       editInputRef.current?.select();
     }
   }, [editingId]);
+
+  const updateCurrentViewSettings = React.useCallback(
+    (updater: Partial<ViewSettings> | ((prev: ViewSettings) => ViewSettings)) => {
+      setViewSettingsByMode((prev) => {
+        const current = prev[viewMode];
+        const next =
+          typeof updater === "function" ? updater(current) : { ...current, ...updater };
+        return { ...prev, [viewMode]: next };
+      });
+    },
+    [viewMode]
+  );
 
   const flatTabs = React.useMemo<SavedTabItem[]>(
     () =>
@@ -89,18 +125,20 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   );
 
   const handleGroupByDateChange = React.useCallback((enabled: boolean) => {
-    setGroupByDate(enabled);
-    if (!enabled) {
-      setGroupByWindow(true);
-    }
-  }, []);
+    updateCurrentViewSettings((prev) => ({
+      ...prev,
+      groupByDate: enabled,
+      groupByWindow: enabled ? prev.groupByWindow : true
+    }));
+  }, [updateCurrentViewSettings]);
 
   const handleGroupByWindowChange = React.useCallback((enabled: boolean) => {
-    if (!enabled) {
-      setGroupByDate(true);
-    }
-    setGroupByWindow(enabled);
-  }, []);
+    updateCurrentViewSettings((prev) => ({
+      ...prev,
+      groupByWindow: enabled,
+      groupByDate: enabled ? prev.groupByDate : true
+    }));
+  }, [updateCurrentViewSettings]);
 
   const toggleSavedExpanded = (id: string) => {
     setExpandedSaved((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -352,7 +390,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
 
   return (
     <section>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex flex-wrap items-center gap-3">
           <DateGroupingToggle enabled={groupByDate} onChange={handleGroupByDateChange} />
           <ControlToggle
@@ -362,26 +400,34 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
             disabled={!groupByDate}
             title={!groupByDate ? "Requires By Date" : undefined}
           />
-          <ViewModeToggle value={viewMode} onChange={setViewMode} />
-          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
+          <ImageDisplayModeToggle
+            value={imageDisplayMode}
+            onChange={(mode) => updateCurrentViewSettings({ imageDisplayMode: mode })}
+          />
           <ControlToggle
             label="Thumbnails Only"
             enabled={thumbnailsOnly}
-            onChange={setThumbnailsOnly}
+            onChange={(enabled) => updateCurrentViewSettings({ thumbnailsOnly: enabled })}
             disabled={imageDisplayMode === "none"}
             title={imageDisplayMode === "none" ? "Requires images" : undefined}
           />
           {viewMode === "grid" && (
-            <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />
+            <MasonryWidthControl
+              value={columnWidth}
+              onChange={(value) => updateCurrentViewSettings({ columnWidth: value })}
+            />
           )}
         </div>
-        <button
-          className="text-gray-400 hover:text-gray-200 hover:bg-[#1a1a1a] text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 rounded px-2 py-1"
-          onClick={onClear}
-          disabled={collections.length === 0}
-        >
-          Clear Saved Entries
-        </button>
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          <button
+            className="text-gray-400 hover:text-gray-200 hover:bg-[#1a1a1a] text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 rounded px-2 py-1"
+            onClick={onClear}
+            disabled={collections.length === 0}
+          >
+            Clear Saved Entries
+          </button>
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
+        </div>
       </div>
       {collections.length === 0 ? (
         <p className="text-gray-500 text-sm italic">No saved tab sets yet.</p>
