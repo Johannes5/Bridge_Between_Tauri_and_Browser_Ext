@@ -6,7 +6,8 @@
       "Bash(curl:*)",
       "Bash(echo === $skill ===:*)",
       "Bash(grep:*)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(pnpm:*)"
     ]
   }
 }
