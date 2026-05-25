@@ -724,6 +724,7 @@ const TabRow: React.FC<TabRowProps> = ({
             tab={tab}
             className="h-40 w-full shrink-0"
             durationOverlayText={durationOverlayText}
+            hideWhenEmpty
           />
         )}
         {isSmallImage && <TabPreviewImage tab={tab} className="h-14 w-24 shrink-0" />}

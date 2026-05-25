@@ -211,6 +211,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
                     tab={tab}
                     className="h-40 w-full shrink-0"
                     durationOverlayText={tab.videoDurationText}
+                    hideWhenEmpty
                   />
                 )}
                 {isSmallImage && <TabPreviewImage tab={tab} className="h-14 w-24 shrink-0" />}

@@ -6,12 +6,14 @@ interface TabPreviewImageProps {
   tab: TabDescriptor;
   className?: string;
   durationOverlayText?: string;
+  hideWhenEmpty?: boolean;
 }
 
 export const TabPreviewImage: React.FC<TabPreviewImageProps> = ({
   tab,
   className = "",
-  durationOverlayText
+  durationOverlayText,
+  hideWhenEmpty = false
 }) => {
   const src = tab.previewImageUrl?.trim();
   const [failed, setFailed] = React.useState(false);
@@ -21,6 +23,10 @@ export const TabPreviewImage: React.FC<TabPreviewImageProps> = ({
   }, [src]);
 
   if (!src || failed) {
+    if (hideWhenEmpty) {
+      return null;
+    }
+
     return (
       <div aria-hidden="true" className={`relative overflow-hidden rounded-md ${className}`}>
         <div className="flex h-full w-full items-center justify-center border border-[#222226] bg-[#17171a] text-gray-600">
