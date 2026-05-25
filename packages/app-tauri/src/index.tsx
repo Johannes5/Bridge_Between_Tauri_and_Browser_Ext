@@ -190,7 +190,6 @@ const App: React.FC = () => {
       id: randomId(),
       windowId: meta.windowId ?? null,
       tabs,
-      reason: "app-manual",
       source: "app",
       savedAt,
       browser: meta.browser,

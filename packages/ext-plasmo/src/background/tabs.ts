@@ -5,7 +5,7 @@ import {
 } from "shared-proto";
 import { state } from "./state";
 import { postToNative } from "./connection";
-import { isValidUrl, serializeTab, coerceLastAccessed } from "./utils";
+import { isValidUrl, serializeTabWithPreview, coerceLastAccessed } from "./utils";
 import { resolveWindowSnapshot, notifyFocusWindow } from "./windows";
 
 export const fetchTabsForWindow = async (
@@ -27,10 +27,11 @@ export const sendCurrentWindowTabs = async (reason: string) => {
     
     // Collect all tabs from all windows
     const allTabs = allWindows.flatMap((win) => win.tabs ?? []);
+    const serializedTabs = await Promise.all(allTabs.map((tab) => serializeTabWithPreview(tab)));
     
     const payload = TabsListPayloadSchema.parse({
       windowId: null,
-      tabs: allTabs.map(serializeTab),
+      tabs: serializedTabs,
       reason,
       connectionId: state.connectionId ?? undefined,
       browser: state.browser ?? undefined

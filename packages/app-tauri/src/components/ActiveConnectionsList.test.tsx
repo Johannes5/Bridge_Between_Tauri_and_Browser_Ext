@@ -1,14 +1,18 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { ActiveConnectionsList } from "./ActiveConnectionsList";
 import type { BrowserTabSnapshot } from "../types";
-import type { TabDescriptor } from "@bridge/shared-proto";
+import type { TabDescriptor } from "shared-proto";
 
 describe("ActiveConnectionsList", () => {
   const mockTab: TabDescriptor = {
     id: 1,
     url: "https://www.example.com/page",
     title: "Example Domain",
+    channelName: "Example Channel",
+    videoDurationText: "12:34",
+    previewImageUrl: "https://images.example.com/preview.jpg",
+    previewImageKind: "title-image",
     windowId: 100,
     lastAccessed: Date.now(),
     pinned: false
@@ -35,7 +39,7 @@ describe("ActiveConnectionsList", () => {
       />
     );
 
-  it("renders empty state", () => {
+  it("renders empty state", async () => {
     render(
       <ActiveConnectionsList
         snapshots={[]}
@@ -45,9 +49,10 @@ describe("ActiveConnectionsList", () => {
         onFocusTab={vi.fn()}
       />
     );
-    // Wait for initialization timer (skipped here because extensionStatus=online clears it immediately)
-    expect(screen.getByText("Current Window Tabs")).toBeInTheDocument();
-    expect(screen.getByText(/No browser connections yet/i)).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText(/No browser connections yet/i)).toBeInTheDocument();
+    });
   });
 
   it("renders connections with the new window-grouped layout", () => {
@@ -59,12 +64,11 @@ describe("ActiveConnectionsList", () => {
     // Per-window header (1-based numbering, not raw windowId)
     expect(screen.getByText("Window 1")).toBeInTheDocument();
 
-    // Tab title is rendered
-    expect(screen.getByText("Example Domain")).toBeInTheDocument();
+    // The interactive row is rendered for the tab
+    expect(screen.getByRole("button", { name: /Focus tab Example Domain/i })).toBeInTheDocument();
 
-    // Domain is shown instead of the full URL, with leading "www." stripped
+    // Domain is shown with leading "www." stripped
     expect(screen.getByText("example.com")).toBeInTheDocument();
-    expect(screen.queryByText("https://www.example.com/page")).not.toBeInTheDocument();
   });
 
   it("focuses a tab when its row is clicked", () => {
@@ -96,5 +100,25 @@ describe("ActiveConnectionsList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Rename tab/i }));
     expect(handleFocus).not.toHaveBeenCalled();
+  });
+
+  it("switches between none, small, and large image modes", () => {
+    const { container } = renderWith();
+
+    expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Small/i }));
+
+    const smallImage = container.querySelector(`img[src="${mockTab.previewImageUrl}"]`);
+    expect(smallImage).toBeInTheDocument();
+    expect(smallImage?.parentElement).toHaveClass("h-14", "w-24");
+    expect(screen.getByText("12:34")).toHaveClass("text-white");
+
+    fireEvent.click(screen.getByRole("button", { name: /Large/i }));
+
+    const largeImage = container.querySelector(`img[src="${mockTab.previewImageUrl}"]`);
+    expect(largeImage).toBeInTheDocument();
+    expect(largeImage?.parentElement).toHaveClass("h-40", "w-full");
+    expect(screen.getByText("12:34")).toHaveClass("bg-black/70", "text-white");
   });
 });

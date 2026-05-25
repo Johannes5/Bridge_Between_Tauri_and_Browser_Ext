@@ -1,12 +1,15 @@
 import * as React from "react";
 import { Globe, Pencil } from "lucide-react";
 import type { SavedTabCollection, BrowserTabSnapshot } from "../types";
-import type { TabDescriptor } from "@bridge/shared-proto";
+import type { TabDescriptor } from "shared-proto";
 import { getSavedWindowLabel } from "../utils/savedWindowLabel";
 import { BrowserIcon } from "./BrowserIcon";
 import { DateGroupingToggle } from "./DateGroupingToggle";
 import { DateStampBadge } from "./DateStampBadge";
+import { ImageDisplayModeToggle, type ImageDisplayMode } from "./ImageDisplayModeToggle";
 import { MasonryWidthControl } from "./MasonryWidthControl";
+import { TabPreviewImage } from "./TabPreviewImage";
+import { TabVideoMeta } from "./TabVideoMeta";
 import { TabHoverTooltip } from "./TabHoverTooltip";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { groupItemsByDay } from "../utils/dateGroups";
@@ -35,6 +38,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   const [editValue, setEditValue] = React.useState("");
   const [viewMode, setViewMode] = React.useState<ViewMode>("list");
   const [groupByDate, setGroupByDate] = React.useState(false);
+  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>("none");
   const [columnWidth, setColumnWidth] = React.useState(320);
   const editInputRef = React.useRef<HTMLInputElement>(null);
   const masonryStyle = React.useMemo(
@@ -95,6 +99,8 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
 
   const renderCollection = (entry: SavedTabCollection, variant: "list" | "grid") => {
     const visibleTabs = expandedSaved[entry.id] ? entry.tabs : entry.tabs.slice(0, 5);
+    const isSmallImage = imageDisplayMode === "small";
+    const isLargeImage = imageDisplayMode === "large";
     const containerClass =
       variant === "grid"
         ? "masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-4"
@@ -195,38 +201,55 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         </div>
         <ul className="space-y-2 mb-3">
           {visibleTabs.map((tab, idx) => (
-            <li key={`${entry.id}-${tab.id ?? idx}`} className="group relative flex items-center justify-between text-sm py-1 border-b border-[#222222] last:border-0 hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors">
-              <div className="flex items-start gap-2 min-w-0 flex-1 pr-4">
-                {tab.favIconUrl ? (
-                  <img
-                    src={tab.favIconUrl}
-                    alt=""
-                    className="w-4 h-4 rounded-sm shrink-0 mt-0.5"
-                    onError={(e) => {
-                      e.currentTarget.style.visibility = "hidden";
-                    }}
+            <li
+              key={`${entry.id}-${tab.id ?? idx}`}
+              className="group relative text-sm py-1 border-b border-[#222222] last:border-0 hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors"
+            >
+              <div className={isLargeImage ? "flex flex-col gap-3 py-1" : "flex items-center justify-between gap-3"}>
+                {isLargeImage && (
+                  <TabPreviewImage
+                    tab={tab}
+                    className="h-40 w-full shrink-0"
+                    durationOverlayText={tab.videoDurationText}
                   />
-                ) : (
-                  <Globe className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
                 )}
-                <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-gray-300 truncate">
-                    {tab.title ?? tab.url ?? "Untitled"}
-                  </span>
-                  {tab.url && <span className="text-gray-500 text-xs truncate font-mono">{tab.url}</span>}
+                {isSmallImage && <TabPreviewImage tab={tab} className="h-14 w-24 shrink-0" />}
+
+                <div className="flex items-start gap-2 min-w-0 flex-1 pr-4">
+                  {tab.favIconUrl ? (
+                    <img
+                      src={tab.favIconUrl}
+                      alt=""
+                      className="w-4 h-4 rounded-sm shrink-0 mt-0.5"
+                      onError={(e) => {
+                        e.currentTarget.style.visibility = "hidden";
+                      }}
+                    />
+                  ) : (
+                    <Globe className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
+                  )}
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="text-gray-300 truncate">
+                      {tab.title ?? tab.url ?? "Untitled"}
+                    </span>
+                    <TabVideoMeta tab={tab} className="mt-1" showDuration={!isLargeImage} />
+                    {tab.url && (
+                      <span className="text-gray-500 text-xs truncate font-mono mt-1">{tab.url}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                {tab.url ? (
-                  <button
-                    onClick={() => handleOpenSingleTab(tab, entry)}
-                    className="text-gray-300 hover:text-gray-100 text-xs font-medium px-2 py-1 rounded bg-[#1a1a1a] hover:bg-[#202020] border border-[#2a2a2a]"
-                  >
-                    Open
-                  </button>
-                ) : (
-                  <span className="text-gray-600 text-xs">No URL</span>
-                )}
+                <div className={`opacity-0 group-hover:opacity-100 transition-opacity ${isLargeImage ? "" : "shrink-0"}`}>
+                  {tab.url ? (
+                    <button
+                      onClick={() => handleOpenSingleTab(tab, entry)}
+                      className="text-gray-300 hover:text-gray-100 text-xs font-medium px-2 py-1 rounded bg-[#1a1a1a] hover:bg-[#202020] border border-[#2a2a2a]"
+                    >
+                      Open
+                    </button>
+                  ) : (
+                    <span className="text-gray-600 text-xs">No URL</span>
+                  )}
+                </div>
               </div>
               <TabHoverTooltip title={tab.title ?? "Untitled"} url={tab.url} />
             </li>
@@ -258,6 +281,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex flex-wrap items-center gap-3">
           <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
+          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
           {viewMode === "grid" && (
             <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />

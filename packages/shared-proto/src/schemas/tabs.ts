@@ -24,11 +24,24 @@ const relaxedUrl = z.preprocess((value) => {
   return trimmed.length > 0 ? trimmed : undefined;
 }, relaxedUrlBase.optional());
 
+const trimmedString = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}, z.string().min(1).optional());
+
 export const TabDescriptorSchema = z.object({
   id: z.number().int().nonnegative().optional().nullable(),
   url: relaxedUrl,
   title: z.string().optional(),
   favIconUrl: relaxedUrl,
+  previewImageUrl: relaxedUrl,
+  previewImageKind: z.enum(["video-thumbnail", "title-image"]).optional(),
+  channelName: trimmedString,
+  videoDurationText: trimmedString,
+  videoDurationSeconds: z.number().nonnegative().optional(),
   lastAccessed: z.number().int().optional(),
   windowId: z.number().int().optional(),
   index: z.number().int().nonnegative().optional(),

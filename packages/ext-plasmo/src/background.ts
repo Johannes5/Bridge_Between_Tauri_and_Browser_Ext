@@ -258,12 +258,14 @@ const onFromNative = async (raw: unknown) => {
 
 const subscribeTabEvents = () => {
   // Use DeltaManager for granular updates
-  chrome.tabs.onCreated.addListener((tab) => deltaManager.queueAdded(tab));
+  chrome.tabs.onCreated.addListener((tab) => {
+    void deltaManager.queueAdded(tab);
+  });
 
   chrome.tabs.onUpdated.addListener((_id, changeInfo, tab) => {
     // Only send updates for meaningful changes
     if (changeInfo.url || changeInfo.title || changeInfo.pinned !== undefined || changeInfo.status === "complete") {
-      deltaManager.queueUpdated(tab);
+      void deltaManager.queueUpdated(tab);
     }
   });
 

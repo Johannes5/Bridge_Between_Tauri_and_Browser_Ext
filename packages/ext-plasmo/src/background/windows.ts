@@ -4,15 +4,16 @@ import {
 } from "shared-proto";
 import { state } from "./state";
 import { postToNative } from "./connection";
-import { serializeTab } from "./utils";
+import { serializeTabWithPreview } from "./utils";
 import { fetchTabsForWindow } from "./tabs";
 
 export const resolveWindowSnapshot = async (window?: chrome.windows.Window) => {
   const windowId = window?.id ?? chrome.windows.WINDOW_ID_NONE;
   const tabs = await fetchTabsForWindow(windowId, window?.tabs);
+  const serializedTabs = await Promise.all(tabs.map((tab) => serializeTabWithPreview(tab)));
   const basePayload = TabsListPayloadSchema.parse({
     windowId,
-    tabs: tabs.map(serializeTab)
+    tabs: serializedTabs
   });
   return {
     windowId,

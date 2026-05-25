@@ -39,11 +39,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { BrowserTabSnapshot } from "../types";
-import type { TabDescriptor } from "@bridge/shared-proto";
+import type { TabDescriptor } from "shared-proto";
 import { BrowserIcon } from "./BrowserIcon";
 import { DateGroupingToggle } from "./DateGroupingToggle";
 import { DateStampBadge } from "./DateStampBadge";
+import { ImageDisplayModeToggle, type ImageDisplayMode } from "./ImageDisplayModeToggle";
 import { MasonryWidthControl } from "./MasonryWidthControl";
+import { TabPreviewImage } from "./TabPreviewImage";
+import { TabVideoMeta } from "./TabVideoMeta";
 import { TabHoverTooltip } from "./TabHoverTooltip";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { groupItemsByDay } from "../utils/dateGroups";
@@ -182,6 +185,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<ViewMode>("list");
   const [groupByDate, setGroupByDate] = React.useState(false);
+  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>("none");
   const [columnWidth, setColumnWidth] = React.useState(320);
   const firstSeenRef = React.useRef(new Map<string, number>());
   const masonryStyle = React.useMemo(
@@ -247,6 +251,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
       <div className="flex justify-end">
         <div className="flex flex-wrap items-center gap-3">
           <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
+          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
           {viewMode === "grid" && (
             <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />
@@ -261,6 +266,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
               key={snapshot.connectionId}
               snapshot={snapshot}
               isSending={isSending}
+              imageDisplayMode={imageDisplayMode}
               onSave={onSaveTabs}
               onFocus={onFocusTab}
             />
@@ -273,6 +279,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
           windows={sessionWindows}
           masonryStyle={masonryStyle}
           isSending={isSending}
+          imageDisplayMode={imageDisplayMode}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
@@ -284,6 +291,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
           viewMode={viewMode}
           masonryStyle={masonryStyle}
           isSending={isSending}
+          imageDisplayMode={imageDisplayMode}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
@@ -295,6 +303,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 interface ConnectionCardProps {
   snapshot: BrowserTabSnapshot;
   isSending: boolean;
+  imageDisplayMode: ImageDisplayMode;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -305,7 +314,13 @@ interface ConnectionCardProps {
   ) => void;
 }
 
-const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, onSave, onFocus }) => {
+const ConnectionCard: React.FC<ConnectionCardProps> = ({
+  snapshot,
+  isSending,
+  imageDisplayMode,
+  onSave,
+  onFocus
+}) => {
   const { byWindow, orphans } = React.useMemo(() => {
     const map = new Map<number, TabDescriptor[]>();
     const orphanList: TabDescriptor[] = [];
@@ -354,6 +369,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
               browser={snapshot.browser}
               connectionId={snapshot.connectionId}
               isSending={isSending}
+              imageDisplayMode={imageDisplayMode}
               onSave={onSave}
               onFocus={onFocus}
             />
@@ -366,6 +382,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
               browser={snapshot.browser}
               connectionId={snapshot.connectionId}
               isSending={isSending}
+              imageDisplayMode={imageDisplayMode}
               onSave={onSave}
               onFocus={onFocus}
             />
@@ -380,6 +397,7 @@ const CurrentSessionGrid: React.FC<{
   windows: CurrentSessionWindow[];
   masonryStyle: React.CSSProperties;
   isSending: boolean;
+  imageDisplayMode: ImageDisplayMode;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -388,7 +406,7 @@ const CurrentSessionGrid: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ windows, masonryStyle, isSending, onSave, onFocus }) => {
+}> = ({ windows, masonryStyle, isSending, imageDisplayMode, onSave, onFocus }) => {
   if (windows.length === 0) {
     return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
   }
@@ -401,6 +419,7 @@ const CurrentSessionGrid: React.FC<{
           window={window}
           layout="grid"
           isSending={isSending}
+          imageDisplayMode={imageDisplayMode}
           onSave={onSave}
           onFocus={onFocus}
         />
@@ -414,6 +433,7 @@ const CurrentSessionDateGroups: React.FC<{
   viewMode: ViewMode;
   masonryStyle: React.CSSProperties;
   isSending: boolean;
+  imageDisplayMode: ImageDisplayMode;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -422,7 +442,7 @@ const CurrentSessionDateGroups: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ windows, viewMode, masonryStyle, isSending, onSave, onFocus }) => {
+}> = ({ windows, viewMode, masonryStyle, isSending, imageDisplayMode, onSave, onFocus }) => {
   const groupedWindows = React.useMemo(
     () =>
       groupItemsByDay(windows, (window) => window.firstSeenAt ?? window.lastUpdate).map((group) => ({
@@ -451,6 +471,7 @@ const CurrentSessionDateGroups: React.FC<{
                   window={window}
                   layout="grid"
                   isSending={isSending}
+                  imageDisplayMode={imageDisplayMode}
                   onSave={onSave}
                   onFocus={onFocus}
                 />
@@ -464,6 +485,7 @@ const CurrentSessionDateGroups: React.FC<{
                   window={window}
                   layout="list"
                   isSending={isSending}
+                  imageDisplayMode={imageDisplayMode}
                   onSave={onSave}
                   onFocus={onFocus}
                 />
@@ -480,6 +502,7 @@ const WindowCard: React.FC<{
   window: CurrentSessionWindow;
   layout: "grid" | "list";
   isSending: boolean;
+  imageDisplayMode: ImageDisplayMode;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -488,7 +511,7 @@ const WindowCard: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ window, layout, isSending, onSave, onFocus }) => {
+}> = ({ window, layout, isSending, imageDisplayMode, onSave, onFocus }) => {
   const WindowIcon = window.windowId != null ? getWindowIcon(window.windowId) : null;
   const displayLabel = window.label ?? `Window ${window.windowIndex ?? "?"}`;
   const cardClass =
@@ -531,7 +554,7 @@ const WindowCard: React.FC<{
         </button>
       </div>
 
-      <ul className="mt-3 space-y-1">
+      <ul className={`mt-3 ${imageDisplayMode === "none" ? "space-y-1" : "space-y-2.5"}`}>
         {window.tabs.map((tab) => (
           <TabRow
             key={`${tab.id ?? tab.url}`}
@@ -539,6 +562,7 @@ const WindowCard: React.FC<{
             connectionId={window.connectionId}
             preferWindowId={window.windowId}
             isSending={isSending}
+            imageDisplayMode={imageDisplayMode}
             onFocus={onFocus}
           />
         ))}
@@ -558,6 +582,7 @@ interface WindowGroupProps {
   browser: string;
   connectionId: string;
   isSending: boolean;
+  imageDisplayMode: ImageDisplayMode;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -576,6 +601,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
   browser,
   connectionId,
   isSending,
+  imageDisplayMode,
   onSave,
   onFocus
 }) => {
@@ -618,7 +644,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
       </div>
 
       {/* Tab list */}
-      <ul className="mt-1 ml-5 space-y-0.5">
+      <ul className={`mt-1 ml-5 ${imageDisplayMode === "none" ? "space-y-0.5" : "space-y-2.5"}`}>
         {tabs.map((tab) => (
           <TabRow
             key={`${tab.id ?? tab.url}`}
@@ -626,6 +652,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
             connectionId={connectionId}
             preferWindowId={windowId}
             isSending={isSending}
+            imageDisplayMode={imageDisplayMode}
             onFocus={onFocus}
           />
         ))}
@@ -639,15 +666,26 @@ interface TabRowProps {
   connectionId: string;
   preferWindowId?: number;
   isSending: boolean;
+  imageDisplayMode: ImageDisplayMode;
   onFocus: (
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
 }
 
-const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSending, onFocus }) => {
+const TabRow: React.FC<TabRowProps> = ({
+  tab,
+  connectionId,
+  preferWindowId,
+  isSending,
+  imageDisplayMode,
+  onFocus
+}) => {
   const domain = getDomain(tab.url);
   const disabled = !tab.url || isSending;
+  const isSmallImage = imageDisplayMode === "small";
+  const isLargeImage = imageDisplayMode === "large";
+  const durationOverlayText = isLargeImage ? tab.videoDurationText : undefined;
 
   const handleFocus = () => {
     if (disabled) return;
@@ -674,43 +712,59 @@ const TabRow: React.FC<TabRowProps> = ({ tab, connectionId, preferWindowId, isSe
       aria-label={`Focus tab ${tab.title ?? tab.url ?? "Untitled"}`}
       onClick={handleFocus}
       onKeyDown={handleKey}
-      className={`group relative flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors ${
+      className={`group relative rounded-md transition-colors ${
         disabled
           ? "opacity-50 cursor-not-allowed"
           : "cursor-pointer hover:bg-purple-500/10 focus:bg-purple-500/10 focus:outline-hidden"
       }`}
     >
-      {tab.favIconUrl ? (
-        <img
-          src={tab.favIconUrl}
-          alt=""
-          className="w-4 h-4 rounded-sm shrink-0"
-          onError={(e) => {
-            // Hide broken favicons gracefully
-            (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-          }}
-        />
-      ) : (
-        <Globe className="w-4 h-4 text-gray-500 shrink-0" aria-hidden="true" />
-      )}
+      <div className={isLargeImage ? "flex flex-col gap-3 px-2 py-2" : "flex items-center gap-3 px-2 py-1.5"}>
+        {isLargeImage && (
+          <TabPreviewImage
+            tab={tab}
+            className="h-40 w-full shrink-0"
+            durationOverlayText={durationOverlayText}
+          />
+        )}
+        {isSmallImage && <TabPreviewImage tab={tab} className="h-14 w-24 shrink-0" />}
 
-      <span className="text-xs font-mono text-gray-500 shrink-0 w-16 truncate">
-        {domain}
-      </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-2">
+            {tab.favIconUrl ? (
+              <img
+                src={tab.favIconUrl}
+                alt=""
+                className="w-4 h-4 rounded-sm shrink-0 mt-0.5"
+                onError={(e) => {
+                  // Hide broken favicons gracefully
+                  (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                }}
+              />
+            ) : (
+              <Globe className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
+            )}
 
-      <span className="text-sm text-gray-200 truncate">{tab.title ?? "Untitled"}</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-mono text-gray-500 truncate">{domain || "local"}</div>
+              <span className="mt-0.5 block text-sm text-gray-200 truncate">
+                {tab.title ?? "Untitled"}
+              </span>
+              <TabVideoMeta tab={tab} className="mt-1" showDuration={!isLargeImage} />
+            </div>
 
-      <div className="ml-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
-        <span className="text-[10px] text-gray-500 font-mono">{formatTime(tab.lastAccessed)}</span>
-        <button
-          type="button"
-          onClick={handleRename}
-          className="p-1 text-gray-400 hover:text-purple-100 hover:bg-purple-500/12 rounded transition-colors"
-          title="Rename / change icon"
-          aria-label="Rename tab"
-        >
-          <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-        </button>
+            <div className="ml-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
+              <button
+                type="button"
+                onClick={handleRename}
+                className="p-1 text-gray-400 hover:text-purple-100 hover:bg-purple-500/12 rounded transition-colors"
+                title="Rename / change icon"
+                aria-label="Rename tab"
+              >
+                <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <TabHoverTooltip title={tab.title ?? "Untitled"} url={tab.url} />
     </li>

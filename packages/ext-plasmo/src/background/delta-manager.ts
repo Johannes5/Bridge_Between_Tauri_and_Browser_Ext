@@ -1,7 +1,7 @@
 import { postToNative } from "./connection";
 import { state } from "./state";
 import { TabDescriptor } from "shared-proto";
-import { serializeTab } from "./utils";
+import { clearTabMediaCache, serializeTabWithPreview } from "./utils";
 
 class DeltaManager {
   private added: Map<number, TabDescriptor> = new Map();
@@ -10,9 +10,9 @@ class DeltaManager {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly DEBOUNCE_MS = 200;
 
-  queueAdded(tab: chrome.tabs.Tab) {
+  async queueAdded(tab: chrome.tabs.Tab) {
     if (tab.id === undefined) return;
-    const desc = serializeTab(tab);
+    const desc = await serializeTabWithPreview(tab);
     
     // If pending remove, cancel it
     if (this.removed.has(tab.id)) {
@@ -22,9 +22,9 @@ class DeltaManager {
     this.schedule();
   }
 
-  queueUpdated(tab: chrome.tabs.Tab) {
+  async queueUpdated(tab: chrome.tabs.Tab) {
     if (tab.id === undefined) return;
-    const desc = serializeTab(tab);
+    const desc = await serializeTabWithPreview(tab);
 
     if (this.removed.has(tab.id)) return; // Ignore if removed
 
@@ -39,6 +39,7 @@ class DeltaManager {
   }
 
   queueRemoved(tabId: number) {
+      clearTabMediaCache(tabId);
       if (this.added.has(tabId)) {
           this.added.delete(tabId);
           return;

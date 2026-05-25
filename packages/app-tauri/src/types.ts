@@ -1,4 +1,4 @@
-import type { TabDescriptor, TabsListPayload } from "@bridge/shared-proto";
+import type { TabDescriptor, TabsListPayload } from "shared-proto";
 
 export type PresenceState = {
   app?: string;
