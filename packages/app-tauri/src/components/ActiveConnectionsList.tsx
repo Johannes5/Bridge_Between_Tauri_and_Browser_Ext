@@ -381,7 +381,7 @@ const CurrentSessionGrid: React.FC<{
   }
 
   return (
-    <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+    <div className="masonry-layout">
       {windows.map((window) => (
         <WindowCard
           key={window.key}
@@ -430,7 +430,7 @@ const CurrentSessionDateGroups: React.FC<{
         <section key={group.dayStart} className="space-y-6">
           <DateStampBadge timestamp={group.dayStart} />
           {viewMode === "grid" ? (
-            <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+            <div className="masonry-layout">
               {group.items.map((window) => (
                 <WindowCard
                   key={window.key}
@@ -479,7 +479,7 @@ const WindowCard: React.FC<{
   const displayLabel = window.label ?? `Window ${window.windowIndex ?? "?"}`;
   const cardClass =
     layout === "grid"
-      ? "mb-4 break-inside-avoid rounded-xl border border-[#16161a] bg-[#141414] p-3"
+      ? "masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-3"
       : "rounded-xl border border-[#16161a] bg-[#141414] p-3";
 
   return (

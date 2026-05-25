@@ -21,3 +21,30 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+.masonry-layout {
+  column-count: 1;
+  column-gap: 1rem;
+  column-fill: auto;
+}
+
+.masonry-item {
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 1rem;
+  vertical-align: top;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media (min-width: 768px) {
+  .masonry-layout {
+    column-count: 2;
+  }
+}
+
+@media (min-width: 1280px) {
+  .masonry-layout {
+    column-count: 3;
+  }
+}

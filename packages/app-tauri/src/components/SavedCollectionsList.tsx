@@ -90,7 +90,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
     const visibleTabs = expandedSaved[entry.id] ? entry.tabs : entry.tabs.slice(0, 5);
     const containerClass =
       variant === "grid"
-        ? "mb-4 break-inside-avoid rounded-xl border border-[#16161a] bg-[#141414] p-4"
+        ? "masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-4"
         : "py-4";
     const headerClass =
       variant === "grid"
@@ -268,7 +268,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
             <section key={group.dayStart} className="space-y-6">
               <DateStampBadge timestamp={group.dayStart} />
               {viewMode === "grid" ? (
-                <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+                <div className="masonry-layout">
                   {group.items.map((entry) => renderCollection(entry, "grid"))}
                 </div>
               ) : (
@@ -284,7 +284,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
           {collections.map((entry) => renderCollection(entry, "list"))}
         </div>
       ) : (
-        <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+        <div className="masonry-layout">
           {collections.map((entry) => renderCollection(entry, "grid"))}
         </div>
       )}
