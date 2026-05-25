@@ -4,6 +4,7 @@ import type { SavedTabCollection, BrowserTabSnapshot } from "../types";
 import type { TabDescriptor } from "shared-proto";
 import { getSavedWindowLabel } from "../utils/savedWindowLabel";
 import { BrowserIcon } from "./BrowserIcon";
+import { ControlToggle } from "./ControlToggle";
 import { DateGroupingToggle } from "./DateGroupingToggle";
 import { DateStampBadge } from "./DateStampBadge";
 import { ImageDisplayModeToggle, type ImageDisplayMode } from "./ImageDisplayModeToggle";
@@ -13,6 +14,23 @@ import { TabVideoMeta } from "./TabVideoMeta";
 import { TabHoverTooltip } from "./TabHoverTooltip";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { groupItemsByDay } from "../utils/dateGroups";
+
+const DEFAULT_VIEW_MODE: ViewMode = "grid";
+const DEFAULT_GROUP_BY_DATE = true;
+const DEFAULT_GROUP_BY_WINDOW = true;
+const DEFAULT_IMAGE_DISPLAY_MODE: ImageDisplayMode = "large";
+const DEFAULT_THUMBNAILS_ONLY = true;
+const DEFAULT_COLUMN_WIDTH = 300;
+
+const shouldShowPreviewImage = (tab: TabDescriptor, thumbnailsOnly: boolean): boolean =>
+  !thumbnailsOnly || tab.previewImageKind === "video-thumbnail";
+
+interface SavedTabItem {
+  key: string;
+  tab: TabDescriptor;
+  entry: SavedTabCollection;
+  savedAt: number;
+}
 
 interface SavedCollectionsListProps {
   collections: SavedTabCollection[];
@@ -36,10 +54,14 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   const [expandedSaved, setExpandedSaved] = React.useState<Record<string, boolean>>({});
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
-  const [viewMode, setViewMode] = React.useState<ViewMode>("list");
-  const [groupByDate, setGroupByDate] = React.useState(false);
-  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>("none");
-  const [columnWidth, setColumnWidth] = React.useState(320);
+  const [viewMode, setViewMode] = React.useState<ViewMode>(DEFAULT_VIEW_MODE);
+  const [groupByDate, setGroupByDate] = React.useState(DEFAULT_GROUP_BY_DATE);
+  const [groupByWindow, setGroupByWindow] = React.useState(DEFAULT_GROUP_BY_WINDOW);
+  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>(
+    DEFAULT_IMAGE_DISPLAY_MODE
+  );
+  const [thumbnailsOnly, setThumbnailsOnly] = React.useState(DEFAULT_THUMBNAILS_ONLY);
+  const [columnWidth, setColumnWidth] = React.useState(DEFAULT_COLUMN_WIDTH);
   const editInputRef = React.useRef<HTMLInputElement>(null);
   const masonryStyle = React.useMemo(
     () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
@@ -52,6 +74,33 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
       editInputRef.current?.select();
     }
   }, [editingId]);
+
+  const flatTabs = React.useMemo<SavedTabItem[]>(
+    () =>
+      collections.flatMap((entry) =>
+        entry.tabs.map((tab, index) => ({
+          key: `${entry.id}-${tab.id ?? tab.url ?? index}`,
+          tab,
+          entry,
+          savedAt: entry.savedAt
+        }))
+      ),
+    [collections]
+  );
+
+  const handleGroupByDateChange = React.useCallback((enabled: boolean) => {
+    setGroupByDate(enabled);
+    if (!enabled) {
+      setGroupByWindow(true);
+    }
+  }, []);
+
+  const handleGroupByWindowChange = React.useCallback((enabled: boolean) => {
+    if (!enabled) {
+      setGroupByDate(true);
+    }
+    setGroupByWindow(enabled);
+  }, []);
 
   const toggleSavedExpanded = (id: string) => {
     setExpandedSaved((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -97,10 +146,87 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
     });
   };
 
-  const renderCollection = (entry: SavedTabCollection, variant: "list" | "grid") => {
-    const visibleTabs = expandedSaved[entry.id] ? entry.tabs : entry.tabs.slice(0, 5);
+  const renderTabItem = (
+    entry: SavedTabCollection,
+    tab: TabDescriptor,
+    key: string,
+    compactCard = false
+  ) => {
     const isSmallImage = imageDisplayMode === "small";
     const isLargeImage = imageDisplayMode === "large";
+    const allowPreviewImage = shouldShowPreviewImage(tab, thumbnailsOnly);
+
+    return (
+      <li
+        key={key}
+        className={`group relative text-sm ${
+          compactCard ? "py-0" : "py-1 border-b border-[#222222] last:border-0"
+        } hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors`}
+      >
+        <div className={isLargeImage ? "flex flex-col gap-3 py-1" : "flex items-center justify-between gap-3"}>
+          {isLargeImage && (
+            <TabPreviewImage
+              tab={tab}
+              className="h-40 w-full shrink-0"
+              durationOverlayText={tab.videoDurationText}
+              hideWhenEmpty
+              showImage={allowPreviewImage}
+            />
+          )}
+          {isSmallImage && (
+            <TabPreviewImage
+              tab={tab}
+              className="h-14 w-24 shrink-0"
+              hideWhenEmpty={thumbnailsOnly}
+              showImage={allowPreviewImage}
+            />
+          )}
+
+          <div className="flex items-start gap-2 min-w-0 flex-1 pr-4">
+            {tab.favIconUrl ? (
+              <img
+                src={tab.favIconUrl}
+                alt=""
+                className="w-4 h-4 rounded-sm shrink-0 mt-0.5"
+                onError={(e) => {
+                  e.currentTarget.style.visibility = "hidden";
+                }}
+              />
+            ) : (
+              <Globe className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
+            )}
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-gray-300 truncate">{tab.title ?? tab.url ?? "Untitled"}</span>
+              <TabVideoMeta tab={tab} className="mt-1" showDuration={!isLargeImage} />
+              {tab.url && (
+                <span className="text-gray-500 text-xs truncate font-mono mt-1">{tab.url}</span>
+              )}
+            </div>
+          </div>
+          <div
+            className={`opacity-0 group-hover:opacity-100 transition-opacity ${
+              isLargeImage ? "" : "shrink-0"
+            }`}
+          >
+            {tab.url ? (
+              <button
+                onClick={() => handleOpenSingleTab(tab, entry)}
+                className="text-gray-300 hover:text-gray-100 text-xs font-medium px-2 py-1 rounded bg-[#1a1a1a] hover:bg-[#202020] border border-[#2a2a2a]"
+              >
+                Open
+              </button>
+            ) : (
+              <span className="text-gray-600 text-xs">No URL</span>
+            )}
+          </div>
+        </div>
+        <TabHoverTooltip title={tab.title ?? "Untitled"} url={tab.url} />
+      </li>
+    );
+  };
+
+  const renderCollection = (entry: SavedTabCollection, variant: "list" | "grid") => {
+    const visibleTabs = expandedSaved[entry.id] ? entry.tabs : entry.tabs.slice(0, 5);
     const containerClass =
       variant === "grid"
         ? "masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-4"
@@ -200,61 +326,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
           </div>
         </div>
         <ul className="space-y-2 mb-3">
-          {visibleTabs.map((tab, idx) => (
-            <li
-              key={`${entry.id}-${tab.id ?? idx}`}
-              className="group relative text-sm py-1 border-b border-[#222222] last:border-0 hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors"
-            >
-              <div className={isLargeImage ? "flex flex-col gap-3 py-1" : "flex items-center justify-between gap-3"}>
-                {isLargeImage && (
-                  <TabPreviewImage
-                    tab={tab}
-                    className="h-40 w-full shrink-0"
-                    durationOverlayText={tab.videoDurationText}
-                    hideWhenEmpty
-                  />
-                )}
-                {isSmallImage && <TabPreviewImage tab={tab} className="h-14 w-24 shrink-0" />}
-
-                <div className="flex items-start gap-2 min-w-0 flex-1 pr-4">
-                  {tab.favIconUrl ? (
-                    <img
-                      src={tab.favIconUrl}
-                      alt=""
-                      className="w-4 h-4 rounded-sm shrink-0 mt-0.5"
-                      onError={(e) => {
-                        e.currentTarget.style.visibility = "hidden";
-                      }}
-                    />
-                  ) : (
-                    <Globe className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
-                  )}
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-gray-300 truncate">
-                      {tab.title ?? tab.url ?? "Untitled"}
-                    </span>
-                    <TabVideoMeta tab={tab} className="mt-1" showDuration={!isLargeImage} />
-                    {tab.url && (
-                      <span className="text-gray-500 text-xs truncate font-mono mt-1">{tab.url}</span>
-                    )}
-                  </div>
-                </div>
-                <div className={`opacity-0 group-hover:opacity-100 transition-opacity ${isLargeImage ? "" : "shrink-0"}`}>
-                  {tab.url ? (
-                    <button
-                      onClick={() => handleOpenSingleTab(tab, entry)}
-                      className="text-gray-300 hover:text-gray-100 text-xs font-medium px-2 py-1 rounded bg-[#1a1a1a] hover:bg-[#202020] border border-[#2a2a2a]"
-                    >
-                      Open
-                    </button>
-                  ) : (
-                    <span className="text-gray-600 text-xs">No URL</span>
-                  )}
-                </div>
-              </div>
-              <TabHoverTooltip title={tab.title ?? "Untitled"} url={tab.url} />
-            </li>
-          ))}
+          {visibleTabs.map((tab, idx) => renderTabItem(entry, tab, `${entry.id}-${tab.id ?? idx}`))}
         </ul>
         {entry.tabs.length > 5 && (
           <div className="flex justify-center mt-2">
@@ -281,9 +353,23 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex flex-wrap items-center gap-3">
-          <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
-          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
+          <DateGroupingToggle enabled={groupByDate} onChange={handleGroupByDateChange} />
+          <ControlToggle
+            label="By Window"
+            enabled={groupByWindow}
+            onChange={handleGroupByWindowChange}
+            disabled={!groupByDate}
+            title={!groupByDate ? "Requires By Date" : undefined}
+          />
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
+          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
+          <ControlToggle
+            label="Thumbnails Only"
+            enabled={thumbnailsOnly}
+            onChange={setThumbnailsOnly}
+            disabled={imageDisplayMode === "none"}
+            title={imageDisplayMode === "none" ? "Requires images" : undefined}
+          />
           {viewMode === "grid" && (
             <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />
           )}
@@ -298,7 +384,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
       </div>
       {collections.length === 0 ? (
         <p className="text-gray-500 text-sm italic">No saved tab sets yet.</p>
-      ) : groupByDate ? (
+      ) : groupByDate && groupByWindow ? (
         <div className="space-y-14">
           {groupedCollections.map((group) => (
             <section key={group.dayStart} className="space-y-6">
@@ -311,6 +397,32 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
                 <div className="space-y-4">
                   {group.items.map((entry) => renderCollection(entry, "list"))}
                 </div>
+              )}
+            </section>
+          ))}
+        </div>
+      ) : groupByDate ? (
+        <div className="space-y-14">
+          {groupItemsByDay(flatTabs, (item) => item.savedAt).map((group) => (
+            <section key={group.dayStart} className="space-y-6">
+              <DateStampBadge timestamp={group.dayStart} />
+              {viewMode === "grid" ? (
+                <div className="masonry-layout" style={masonryStyle}>
+                  {group.items.map((item) => (
+                    <div
+                      key={item.key}
+                      className="masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-4"
+                    >
+                      <ul className="space-y-2 mb-0">
+                        {renderTabItem(item.entry, item.tab, item.key, true)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {group.items.map((item) => renderTabItem(item.entry, item.tab, item.key, false))}
+                </ul>
               )}
             </section>
           ))}

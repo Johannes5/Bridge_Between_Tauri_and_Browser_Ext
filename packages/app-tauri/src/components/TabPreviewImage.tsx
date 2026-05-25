@@ -7,15 +7,17 @@ interface TabPreviewImageProps {
   className?: string;
   durationOverlayText?: string;
   hideWhenEmpty?: boolean;
+  showImage?: boolean;
 }
 
 export const TabPreviewImage: React.FC<TabPreviewImageProps> = ({
   tab,
   className = "",
   durationOverlayText,
-  hideWhenEmpty = false
+  hideWhenEmpty = false,
+  showImage = true
 }) => {
-  const src = tab.previewImageUrl?.trim();
+  const src = showImage ? tab.previewImageUrl?.trim() : undefined;
   const [failed, setFailed] = React.useState(false);
 
   React.useEffect(() => {

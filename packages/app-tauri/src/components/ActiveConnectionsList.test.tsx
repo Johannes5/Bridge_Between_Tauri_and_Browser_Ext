@@ -55,20 +55,18 @@ describe("ActiveConnectionsList", () => {
     });
   });
 
-  it("renders connections with the new window-grouped layout", () => {
-    renderWith();
+  it("renders the default date-grouped window layout", () => {
+    const { container } = renderWith();
 
-    // Connection card header
-    expect(screen.getByText("Current Tabs - chrome")).toBeInTheDocument();
-
-    // Per-window header (1-based numbering, not raw windowId)
     expect(screen.getByText("Window 1")).toBeInTheDocument();
-
-    // The interactive row is rendered for the tab
     expect(screen.getByRole("button", { name: /Focus tab Example Domain/i })).toBeInTheDocument();
-
-    // Domain is shown with leading "www." stripped
     expect(screen.getByText("example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Grid/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Large/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /By Date/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /By Window/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Thumbnails Only/i })).toHaveAttribute("aria-pressed", "true");
+    expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeNull();
   });
 
   it("focuses a tab when its row is clicked", () => {
@@ -87,7 +85,7 @@ describe("ActiveConnectionsList", () => {
     const handleSave = vi.fn();
     renderWith({ onSaveTabs: handleSave });
 
-    fireEvent.click(screen.getByRole("button", { name: /Save Window/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
     expect(handleSave).toHaveBeenCalledWith(
       [mockTab],
       expect.objectContaining({ connectionId: "conn-1", windowId: 100 })
@@ -102,10 +100,27 @@ describe("ActiveConnectionsList", () => {
     expect(handleFocus).not.toHaveBeenCalled();
   });
 
+  it("can flatten tabs when window grouping is disabled", () => {
+    renderWith();
+
+    fireEvent.click(screen.getByRole("button", { name: /By Window/i }));
+
+    expect(screen.queryByText("Window 1")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Save Window/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Focus tab Example Domain/i })).toBeInTheDocument();
+  });
+
   it("switches between none, small, and large image modes", () => {
     const { container } = renderWith();
 
     expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Thumbnails Only/i }));
+
+    const largeImage = container.querySelector(`img[src="${mockTab.previewImageUrl}"]`);
+    expect(largeImage).toBeInTheDocument();
+    expect(largeImage?.parentElement).toHaveClass("h-40", "w-full");
+    expect(screen.getByText("12:34")).toHaveClass("bg-black/70", "text-white");
 
     fireEvent.click(screen.getByRole("button", { name: /Small/i }));
 
@@ -114,11 +129,8 @@ describe("ActiveConnectionsList", () => {
     expect(smallImage?.parentElement).toHaveClass("h-14", "w-24");
     expect(screen.getByText("12:34")).toHaveClass("text-white");
 
-    fireEvent.click(screen.getByRole("button", { name: /Large/i }));
+    fireEvent.click(screen.getByRole("button", { name: /None/i }));
 
-    const largeImage = container.querySelector(`img[src="${mockTab.previewImageUrl}"]`);
-    expect(largeImage).toBeInTheDocument();
-    expect(largeImage?.parentElement).toHaveClass("h-40", "w-full");
-    expect(screen.getByText("12:34")).toHaveClass("bg-black/70", "text-white");
+    expect(container.querySelector(`img[src="${mockTab.previewImageUrl}"]`)).toBeNull();
   });
 });

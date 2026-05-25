@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import type { BrowserTabSnapshot } from "../types";
 import type { TabDescriptor } from "shared-proto";
 import { BrowserIcon } from "./BrowserIcon";
+import { ControlToggle } from "./ControlToggle";
 import { DateGroupingToggle } from "./DateGroupingToggle";
 import { DateStampBadge } from "./DateStampBadge";
 import { ImageDisplayModeToggle, type ImageDisplayMode } from "./ImageDisplayModeToggle";
@@ -109,6 +110,16 @@ const formatTime = (ms?: number | null): string => {
   return new Date(ms).toLocaleTimeString();
 };
 
+const DEFAULT_VIEW_MODE: ViewMode = "grid";
+const DEFAULT_GROUP_BY_DATE = true;
+const DEFAULT_GROUP_BY_WINDOW = true;
+const DEFAULT_IMAGE_DISPLAY_MODE: ImageDisplayMode = "large";
+const DEFAULT_THUMBNAILS_ONLY = true;
+const DEFAULT_COLUMN_WIDTH = 300;
+
+const shouldShowPreviewImage = (tab: TabDescriptor, thumbnailsOnly: boolean): boolean =>
+  !thumbnailsOnly || tab.previewImageKind === "video-thumbnail";
+
 interface CurrentSessionWindow {
   key: string;
   windowId?: number;
@@ -119,6 +130,15 @@ interface CurrentSessionWindow {
   connectionId: string;
   lastUpdate: number;
   firstSeenAt?: number;
+}
+
+interface CurrentSessionTabItem {
+  key: string;
+  tab: TabDescriptor;
+  browser: string;
+  connectionId: string;
+  preferWindowId?: number;
+  timestamp: number;
 }
 
 const getSnapshotWindows = (snapshot: BrowserTabSnapshot): CurrentSessionWindow[] => {
@@ -183,10 +203,14 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   onFocusTab
 }) => {
   const [isInitializing, setIsInitializing] = React.useState(true);
-  const [viewMode, setViewMode] = React.useState<ViewMode>("list");
-  const [groupByDate, setGroupByDate] = React.useState(false);
-  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>("none");
-  const [columnWidth, setColumnWidth] = React.useState(320);
+  const [viewMode, setViewMode] = React.useState<ViewMode>(DEFAULT_VIEW_MODE);
+  const [groupByDate, setGroupByDate] = React.useState(DEFAULT_GROUP_BY_DATE);
+  const [groupByWindow, setGroupByWindow] = React.useState(DEFAULT_GROUP_BY_WINDOW);
+  const [imageDisplayMode, setImageDisplayMode] = React.useState<ImageDisplayMode>(
+    DEFAULT_IMAGE_DISPLAY_MODE
+  );
+  const [thumbnailsOnly, setThumbnailsOnly] = React.useState(DEFAULT_THUMBNAILS_ONLY);
+  const [columnWidth, setColumnWidth] = React.useState(DEFAULT_COLUMN_WIDTH);
   const firstSeenRef = React.useRef(new Map<string, number>());
   const masonryStyle = React.useMemo(
     () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
@@ -213,6 +237,21 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
     return windows;
   }, [snapshots]);
 
+  const sessionTabs = React.useMemo(
+    () =>
+      sessionWindows.flatMap((window) =>
+        window.tabs.map((tab, index) => ({
+          key: `${window.key}-${tab.id ?? tab.url ?? index}`,
+          tab,
+          browser: window.browser,
+          connectionId: window.connectionId,
+          preferWindowId: window.windowId,
+          timestamp: window.firstSeenAt ?? window.lastUpdate
+        }))
+      ),
+    [sessionWindows]
+  );
+
   React.useEffect(() => {
     if (extensionStatus === "online") {
       setIsInitializing(false);
@@ -221,6 +260,20 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
     const timer = setTimeout(() => setIsInitializing(false), 1500);
     return () => clearTimeout(timer);
   }, [extensionStatus]);
+
+  const handleGroupByDateChange = React.useCallback((enabled: boolean) => {
+    setGroupByDate(enabled);
+    if (!enabled) {
+      setGroupByWindow(true);
+    }
+  }, []);
+
+  const handleGroupByWindowChange = React.useCallback((enabled: boolean) => {
+    if (!enabled) {
+      setGroupByDate(true);
+    }
+    setGroupByWindow(enabled);
+  }, []);
 
   const showLoader = isInitializing || extensionStatus !== "online";
 
@@ -250,9 +303,23 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
     <section className="space-y-4">
       <div className="flex justify-end">
         <div className="flex flex-wrap items-center gap-3">
-          <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
-          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
+          <DateGroupingToggle enabled={groupByDate} onChange={handleGroupByDateChange} />
+          <ControlToggle
+            label="By Window"
+            enabled={groupByWindow}
+            onChange={handleGroupByWindowChange}
+            disabled={!groupByDate}
+            title={!groupByDate ? "Requires By Date" : undefined}
+          />
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
+          <ImageDisplayModeToggle value={imageDisplayMode} onChange={setImageDisplayMode} />
+          <ControlToggle
+            label="Thumbnails Only"
+            enabled={thumbnailsOnly}
+            onChange={setThumbnailsOnly}
+            disabled={imageDisplayMode === "none"}
+            title={imageDisplayMode === "none" ? "Requires images" : undefined}
+          />
           {viewMode === "grid" && (
             <MasonryWidthControl value={columnWidth} onChange={setColumnWidth} />
           )}
@@ -267,6 +334,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
               snapshot={snapshot}
               isSending={isSending}
               imageDisplayMode={imageDisplayMode}
+              thumbnailsOnly={thumbnailsOnly}
               onSave={onSaveTabs}
               onFocus={onFocusTab}
             />
@@ -280,6 +348,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
           masonryStyle={masonryStyle}
           isSending={isSending}
           imageDisplayMode={imageDisplayMode}
+          thumbnailsOnly={thumbnailsOnly}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
@@ -288,10 +357,13 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
       {groupByDate && (
         <CurrentSessionDateGroups
           windows={sessionWindows}
+          tabs={sessionTabs}
           viewMode={viewMode}
           masonryStyle={masonryStyle}
           isSending={isSending}
           imageDisplayMode={imageDisplayMode}
+          thumbnailsOnly={thumbnailsOnly}
+          groupByWindow={groupByWindow}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
@@ -304,6 +376,7 @@ interface ConnectionCardProps {
   snapshot: BrowserTabSnapshot;
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -318,6 +391,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({
   snapshot,
   isSending,
   imageDisplayMode,
+  thumbnailsOnly,
   onSave,
   onFocus
 }) => {
@@ -370,6 +444,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({
               connectionId={snapshot.connectionId}
               isSending={isSending}
               imageDisplayMode={imageDisplayMode}
+              thumbnailsOnly={thumbnailsOnly}
               onSave={onSave}
               onFocus={onFocus}
             />
@@ -383,6 +458,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({
               connectionId={snapshot.connectionId}
               isSending={isSending}
               imageDisplayMode={imageDisplayMode}
+              thumbnailsOnly={thumbnailsOnly}
               onSave={onSave}
               onFocus={onFocus}
             />
@@ -398,6 +474,7 @@ const CurrentSessionGrid: React.FC<{
   masonryStyle: React.CSSProperties;
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -406,7 +483,7 @@ const CurrentSessionGrid: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ windows, masonryStyle, isSending, imageDisplayMode, onSave, onFocus }) => {
+}> = ({ windows, masonryStyle, isSending, imageDisplayMode, thumbnailsOnly, onSave, onFocus }) => {
   if (windows.length === 0) {
     return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
   }
@@ -420,6 +497,7 @@ const CurrentSessionGrid: React.FC<{
           layout="grid"
           isSending={isSending}
           imageDisplayMode={imageDisplayMode}
+          thumbnailsOnly={thumbnailsOnly}
           onSave={onSave}
           onFocus={onFocus}
         />
@@ -430,10 +508,13 @@ const CurrentSessionGrid: React.FC<{
 
 const CurrentSessionDateGroups: React.FC<{
   windows: CurrentSessionWindow[];
+  tabs: CurrentSessionTabItem[];
   viewMode: ViewMode;
   masonryStyle: React.CSSProperties;
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
+  groupByWindow: boolean;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -442,7 +523,18 @@ const CurrentSessionDateGroups: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ windows, viewMode, masonryStyle, isSending, imageDisplayMode, onSave, onFocus }) => {
+}> = ({
+  windows,
+  tabs,
+  viewMode,
+  masonryStyle,
+  isSending,
+  imageDisplayMode,
+  thumbnailsOnly,
+  groupByWindow,
+  onSave,
+  onFocus
+}) => {
   const groupedWindows = React.useMemo(
     () =>
       groupItemsByDay(windows, (window) => window.firstSeenAt ?? window.lastUpdate).map((group) => ({
@@ -454,43 +546,110 @@ const CurrentSessionDateGroups: React.FC<{
     [windows]
   );
 
-  if (groupedWindows.length === 0) {
+  const groupedTabs = React.useMemo(
+    () =>
+      groupItemsByDay(tabs, (item) => item.timestamp).map((group) => ({
+        ...group,
+        items: [...group.items].sort(
+          (a, b) =>
+            b.timestamp - a.timestamp || (b.tab.lastAccessed ?? 0) - (a.tab.lastAccessed ?? 0)
+        )
+      })),
+    [tabs]
+  );
+
+  if (groupByWindow && groupedWindows.length === 0) {
     return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
+  }
+
+  if (!groupByWindow && groupedTabs.length === 0) {
+    return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
+  }
+
+  if (groupByWindow) {
+    return (
+      <div className="space-y-14">
+        {groupedWindows.map((group) => (
+          <section key={group.dayStart} className="space-y-6">
+            <DateStampBadge timestamp={group.dayStart} />
+            {viewMode === "grid" ? (
+              <div className="masonry-layout" style={masonryStyle}>
+                {group.items.map((window) => (
+                  <WindowCard
+                    key={window.key}
+                    window={window}
+                    layout="grid"
+                    isSending={isSending}
+                    imageDisplayMode={imageDisplayMode}
+                    thumbnailsOnly={thumbnailsOnly}
+                    onSave={onSave}
+                    onFocus={onFocus}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {group.items.map((window) => (
+                  <WindowCard
+                    key={window.key}
+                    window={window}
+                    layout="list"
+                    isSending={isSending}
+                    imageDisplayMode={imageDisplayMode}
+                    thumbnailsOnly={thumbnailsOnly}
+                    onSave={onSave}
+                    onFocus={onFocus}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        ))}
+      </div>
+    );
   }
 
   return (
     <div className="space-y-14">
-      {groupedWindows.map((group) => (
+      {groupedTabs.map((group) => (
         <section key={group.dayStart} className="space-y-6">
           <DateStampBadge timestamp={group.dayStart} />
           {viewMode === "grid" ? (
             <div className="masonry-layout" style={masonryStyle}>
-              {group.items.map((window) => (
-                <WindowCard
-                  key={window.key}
-                  window={window}
-                  layout="grid"
-                  isSending={isSending}
-                  imageDisplayMode={imageDisplayMode}
-                  onSave={onSave}
-                  onFocus={onFocus}
-                />
+              {group.items.map((item) => (
+                <div
+                  key={item.key}
+                  className="masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-1"
+                >
+                  <ul className="list-none">
+                    <TabRow
+                      tab={item.tab}
+                      connectionId={item.connectionId}
+                      preferWindowId={item.preferWindowId}
+                      isSending={isSending}
+                      imageDisplayMode={imageDisplayMode}
+                      thumbnailsOnly={thumbnailsOnly}
+                      onFocus={onFocus}
+                    />
+                  </ul>
+                </div>
               ))}
             </div>
           ) : (
-            <div className="space-y-4">
-              {group.items.map((window) => (
-                <WindowCard
-                  key={window.key}
-                  window={window}
-                  layout="list"
+            <ul className="space-y-2">
+              {group.items.map((item) => (
+                <TabRow
+                  key={item.key}
+                  tab={item.tab}
+                  connectionId={item.connectionId}
+                  preferWindowId={item.preferWindowId}
                   isSending={isSending}
                   imageDisplayMode={imageDisplayMode}
-                  onSave={onSave}
+                  thumbnailsOnly={thumbnailsOnly}
                   onFocus={onFocus}
                 />
               ))}
-            </div>
+            </ul>
           )}
         </section>
       ))}
@@ -503,6 +662,7 @@ const WindowCard: React.FC<{
   layout: "grid" | "list";
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -511,7 +671,7 @@ const WindowCard: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ window, layout, isSending, imageDisplayMode, onSave, onFocus }) => {
+}> = ({ window, layout, isSending, imageDisplayMode, thumbnailsOnly, onSave, onFocus }) => {
   const WindowIcon = window.windowId != null ? getWindowIcon(window.windowId) : null;
   const displayLabel = window.label ?? `Window ${window.windowIndex ?? "?"}`;
   const cardClass =
@@ -563,6 +723,7 @@ const WindowCard: React.FC<{
             preferWindowId={window.windowId}
             isSending={isSending}
             imageDisplayMode={imageDisplayMode}
+            thumbnailsOnly={thumbnailsOnly}
             onFocus={onFocus}
           />
         ))}
@@ -583,6 +744,7 @@ interface WindowGroupProps {
   connectionId: string;
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -602,6 +764,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
   connectionId,
   isSending,
   imageDisplayMode,
+  thumbnailsOnly,
   onSave,
   onFocus
 }) => {
@@ -653,6 +816,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
             preferWindowId={windowId}
             isSending={isSending}
             imageDisplayMode={imageDisplayMode}
+            thumbnailsOnly={thumbnailsOnly}
             onFocus={onFocus}
           />
         ))}
@@ -667,6 +831,7 @@ interface TabRowProps {
   preferWindowId?: number;
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
+  thumbnailsOnly: boolean;
   onFocus: (
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
@@ -679,6 +844,7 @@ const TabRow: React.FC<TabRowProps> = ({
   preferWindowId,
   isSending,
   imageDisplayMode,
+  thumbnailsOnly,
   onFocus
 }) => {
   const domain = getDomain(tab.url);
@@ -686,6 +852,7 @@ const TabRow: React.FC<TabRowProps> = ({
   const isSmallImage = imageDisplayMode === "small";
   const isLargeImage = imageDisplayMode === "large";
   const durationOverlayText = isLargeImage ? tab.videoDurationText : undefined;
+  const allowPreviewImage = shouldShowPreviewImage(tab, thumbnailsOnly);
 
   const handleFocus = () => {
     if (disabled) return;
@@ -725,9 +892,17 @@ const TabRow: React.FC<TabRowProps> = ({
             className="h-40 w-full shrink-0"
             durationOverlayText={durationOverlayText}
             hideWhenEmpty
+            showImage={allowPreviewImage}
           />
         )}
-        {isSmallImage && <TabPreviewImage tab={tab} className="h-14 w-24 shrink-0" />}
+        {isSmallImage && (
+          <TabPreviewImage
+            tab={tab}
+            className="h-14 w-24 shrink-0"
+            hideWhenEmpty={thumbnailsOnly}
+            showImage={allowPreviewImage}
+          />
+        )}
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
