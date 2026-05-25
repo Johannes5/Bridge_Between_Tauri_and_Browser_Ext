@@ -23,13 +23,20 @@ class GlobalState {
 
   private detectBrowser(): string {
     const ua = navigator.userAgent.toLowerCase()
-    if (chrome.edge != undefined || ua.includes("edg/")) return "edge";
-    if (ua.includes("opr/") || ua.includes("opera/")) return "opera";
-    if ("brave" in navigator || ua.includes("brave")) return "brave"; // Brave hides this often, but sometimes present
-    if (chrome.perplexity != undefined || ua.includes("comet") || ua.includes("perplexity")) return "comet";
-    if (ua.includes("firefox")) return "firefox";
-    if (ua.includes("chrome")) return "chrome";
-    return "unknown-browser";
+    // Browsers with reliable API markers — checked first
+    if (chrome.edge != undefined || ua.includes("edg/")) return "Edge";
+    if ("brave" in navigator) return "Brave";
+    if (chrome.perplexity != undefined) return "Comet";
+    // Browsers with unique UA strings — checked before generic Chrome fallback
+    if (ua.includes("opr/") || ua.includes("opera/")) return "Opera";
+    if (ua.includes("vivaldi")) return "Vivaldi";
+    if (ua.includes("yabrowser")) return "Yandex";
+    if (ua.includes("whale")) return "Whale";
+    if (ua.includes("comet") || ua.includes("perplexity")) return "Comet";
+    if (ua.includes("brave")) return "Brave"; // fallback: Brave sometimes hides navigator.brave
+    if (ua.includes("firefox")) return "Firefox";
+    if (ua.includes("chrome")) return "Chrome"; // catches remaining Chromium browsers
+    return "Unknown";
   }
 
   public static getInstance(): GlobalState {

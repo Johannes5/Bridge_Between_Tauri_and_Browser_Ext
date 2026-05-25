@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl:*)",
+      "Bash(echo === $skill ===:*)",
+      "Bash(grep:*)",
+      "Bash(open:*)",
+      "Bash(pnpm:*)",
+      "Bash(cd /Users/johannes/pCloud/Programming/ProPro_Productions/Bridge_Between_Tauri_and_Browser_Ext/packages/app-tauri && npx vitest run src/store/handlers/__tests__ 2>&1)",
+      "Bash(npx vitest:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cargo check:*)"
+    ]
+  }
+}

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture Review — Bridge Between Tauri and Browser Ext</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; }
+  .badge-strong { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+  .badge-worth  { background: #fef9c3; color: #854d0e; border: 1px solid #fef08a; }
+  .badge-spec   { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .card { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 2rem; overflow: hidden; border: 1px solid #e2e8f0; }
+  .card-header { padding: 1.5rem 2rem 1rem; border-bottom: 1px solid #f1f5f9; }
+  .card-body { padding: 1.5rem 2rem; }
+  .diagram-box { background: #f8fafc; border-radius: 8px; padding: 1rem; border: 1px solid #e2e8f0; font-size: 0.85rem; }
+  h1 { color: #0f172a; }
+  h2 { color: #1e293b; }
+  h3 { color: #334155; }
+  .file-chip { display: inline-block; background: #f1f5f9; color: #475569; font-family: monospace; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; margin: 2px; border: 1px solid #e2e8f0; }
+  .section-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px; }
+  .top-rec { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; border-radius: 12px; padding: 2rem; }
+</style>
+</head>
+<body class="p-8 max-w-5xl mx-auto">
+
+<div class="mb-10">
+  <div class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Architecture Review</div>
+  <h1 class="text-3xl font-bold mb-2">Bridge Between Tauri &amp; Browser Extension</h1>
+  <p class="text-slate-500 text-sm">Deepening opportunities — refactors that turn shallow modules into deep ones for better testability and AI-navigability.</p>
+</div>
+
+<!-- CANDIDATE 1: Envelope Handler Registry -->
+<div class="card">
+  <div class="card-header flex items-start justify-between gap-4">
+    <div>
+      <div class="section-label">Candidate 1</div>
+      <h2 class="text-xl font-bold">Envelope Handler Registry</h2>
+    </div>
+    <span class="badge-strong text-xs font-semibold px-3 py-1 rounded-full mt-1 whitespace-nowrap">Strong</span>
+  </div>
+  <div class="card-body">
+    <div class="mb-4">
+      <div class="section-label">Files</div>
+      <span class="file-chip">packages/app-tauri/src/store.ts</span>
+      <span class="file-chip">packages/ext-plasmo/src/background.ts</span>
+      <span class="file-chip">packages/sidecar/src/main.rs</span>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Problem</div>
+      <p class="text-slate-700 text-sm">The Zustand store has a 360-line switch statement dispatching on <code class="bg-slate-100 px-1 rounded text-xs">envelope.type</code>. Adding a new message type means editing the main loop. The sidecar has the same problem in Rust. This is the worst kind of shallow module: the <em>interface</em> (the dispatch map) and the <em>implementation</em> (every handler) live in the same place with no seam between them. Delete the switch and complexity explodes across every caller — which proves it earns its keep as a registry, not a monolith.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Solution</div>
+      <p class="text-slate-700 text-sm">Extract a typed handler registry: <code class="bg-slate-100 px-1 rounded text-xs">registerHandler(type, handler)</code> / <code class="bg-slate-100 px-1 rounded text-xs">dispatch(envelope)</code>. Each handler is its own module. The registry is the seam — you can swap implementations, test handlers in isolation, and add new message types without touching anything else.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Benefits</div>
+      <ul class="text-slate-700 text-sm list-disc list-inside space-y-1">
+        <li><strong>Locality:</strong> Each handler owns its own change surface — a new <code class="bg-slate-100 px-1 rounded text-xs">tabs.pin</code> handler lives in one file</li>
+        <li><strong>Leverage:</strong> Callers only need <code class="bg-slate-100 px-1 rounded text-xs">dispatch(envelope)</code> — zero knowledge of type strings</li>
+        <li><strong>Testability:</strong> Register a mock handler in tests; dispatch envelopes and assert state changes</li>
+      </ul>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mt-6">
+      <div>
+        <div class="section-label mb-2">Before</div>
+        <div class="diagram-box">
+<pre class="text-xs text-slate-600">store.ts (360 LOC)
+├─ switch(envelope.type)
+│  ├─ case "tabs.list"     // 40 LOC
+│  ├─ case "tabs.delta"    // 60 LOC
+│  ├─ case "presence.status" // 20 LOC
+│  ├─ case "browser.info" // 15 LOC
+│  └─ case "focus.window" // 25 LOC
+│       ...8 more cases
+│
+└─ No seam. Adding a type
+   means editing this file.</pre>
+        </div>
+      </div>
+      <div>
+        <div class="section-label mb-2">After</div>
+        <div class="diagram-box">
+<pre class="text-xs text-slate-600">handlers/
+├─ tabs-list.ts        // isolated
+├─ tabs-delta.ts       // isolated
+├─ presence-status.ts  // isolated
+└─ ...
+
+registry.ts
+├─ registerHandler(type, fn)
+└─ dispatch(envelope)      ← seam
+
+store.ts (30 LOC)
+└─ import * from handlers/
+   registry.dispatch(env)</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CANDIDATE 2: Tab Delta Merger -->
+<div class="card">
+  <div class="card-header flex items-start justify-between gap-4">
+    <div>
+      <div class="section-label">Candidate 2</div>
+      <h2 class="text-xl font-bold">Tab Delta Merger Module</h2>
+    </div>
+    <span class="badge-strong text-xs font-semibold px-3 py-1 rounded-full mt-1 whitespace-nowrap">Strong</span>
+  </div>
+  <div class="card-body">
+    <div class="mb-4">
+      <div class="section-label">Files</div>
+      <span class="file-chip">packages/app-tauri/src/store.ts</span>
+      <span class="file-chip">packages/ext-plasmo/src/background/delta-manager.ts</span>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Problem</div>
+      <p class="text-slate-700 text-sm">Tab reconciliation (applying added/updated/removed deltas onto a snapshot map) is 100+ LOC of inline logic inside the Zustand store. Meanwhile, the extension has its own delta accumulator. Both ends deal with the same conceptual problem — "merge a delta onto a tab map" — but there's no shared, tested abstraction. The deletion test passes: delete this logic and its complexity reappears in every component that needs to display current tab state.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Solution</div>
+      <p class="text-slate-700 text-sm">Extract <code class="bg-slate-100 px-1 rounded text-xs">applyDelta(snapshot: TabMap, delta: TabsDelta): TabMap</code> as a pure function module in <code class="bg-slate-100 px-1 rounded text-xs">shared-proto</code> or a new <code class="bg-slate-100 px-1 rounded text-xs">shared-logic</code> package. The interface is the test surface: give it a snapshot and a delta, assert the result. No Chrome APIs, no Tauri, no Zustand.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Benefits</div>
+      <ul class="text-slate-700 text-sm list-disc list-inside space-y-1">
+        <li><strong>Locality:</strong> All tab-merge bugs concentrate in one module</li>
+        <li><strong>Leverage:</strong> Both extension and app can import the same logic; no drift</li>
+        <li><strong>Testability:</strong> Pure function — trivial to test with property-based tests</li>
+      </ul>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mt-6">
+      <div>
+        <div class="section-label mb-2">Before</div>
+        <div class="diagram-box">
+<pre class="text-xs text-slate-600">store.ts
+└─ applyBrowserDelta(...)
+   // inline: for each added...
+   // inline: for each updated...
+   // inline: for each removed...
+   // 100+ LOC, side-effectful
+
+delta-manager.ts (extension)
+└─ separate accumulation logic
+   (different impl, same concept)</pre>
+        </div>
+      </div>
+      <div>
+        <div class="section-label mb-2">After</div>
+        <div class="diagram-box">
+<pre class="text-xs text-slate-600">shared-proto/src/delta.ts
+└─ applyDelta(
+     snapshot: TabMap,
+     delta: TabsDelta
+   ): TabMap           ← pure fn
+
+store.ts
+└─ applyBrowserDelta(id, delta)
+   // 5 LOC: call applyDelta
+
+delta-manager.ts
+└─ imports applyDelta too</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CANDIDATE 3: Browser Detection Module -->
+<div class="card">
+  <div class="card-header flex items-start justify-between gap-4">
+    <div>
+      <div class="section-label">Candidate 3</div>
+      <h2 class="text-xl font-bold">Browser Detection Module</h2>
+    </div>
+    <span class="badge-worth text-xs font-semibold px-3 py-1 rounded-full mt-1 whitespace-nowrap">Worth exploring</span>
+  </div>
+  <div class="card-body">
+    <div class="mb-4">
+      <div class="section-label">Files</div>
+      <span class="file-chip">packages/sidecar/src/main.rs (detect_browser)</span>
+      <span class="file-chip">packages/ext-plasmo/src/background/state.ts</span>
+      <span class="file-chip">packages/ext-plasmo/src/background/utils.ts</span>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Problem</div>
+      <p class="text-slate-700 text-sm">Browser identity is determined in at least three places: the sidecar inspects parent process names via <code class="bg-slate-100 px-1 rounded text-xs">sysinfo</code>; the extension reads UA strings and environment; <code class="bg-slate-100 px-1 rounded text-xs">state.ts</code> stores the result alongside connection state. These are two separate detection strategies with no shared source of truth. When a new browser appears (Arc, Zen), you update multiple files.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Solution</div>
+      <p class="text-slate-700 text-sm">Sidecar: extract a <code class="bg-slate-100 px-1 rounded text-xs">detect_browser(process_name: &str) -&gt; BrowserName</code> pure function. Extension: extract <code class="bg-slate-100 px-1 rounded text-xs">detectBrowser(): BrowserName</code> with a single UA-matching lookup table. Separate browser identity from connection state in <code class="bg-slate-100 px-1 rounded text-xs">state.ts</code>.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Benefits</div>
+      <ul class="text-slate-700 text-sm list-disc list-inside space-y-1">
+        <li><strong>Locality:</strong> Adding Arc/Zen browser means editing one lookup table, not hunting through two runtimes</li>
+        <li><strong>Testability:</strong> Pure function; test every browser variant with a table of process names → expected output</li>
+        <li><strong>Leverage:</strong> All callers get a typed <code class="bg-slate-100 px-1 rounded text-xs">BrowserName</code> — no string comparison elsewhere</li>
+      </ul>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mt-6">
+      <div>
+        <div class="section-label mb-2">Before</div>
+        <div class="diagram-box">
+<pre class="text-xs text-slate-600">sidecar/main.rs
+└─ detect_browser()
+   // sysinfo parent walk
+   // string matching scattered
+
+state.ts (extension)
+└─ browser: BrowserInfo
+   // set during handshake
+   // UA parsing inline
+
+No shared contract between them</pre>
+        </div>
+      </div>
+      <div>
+        <div class="section-label mb-2">After</div>
+        <div class="diagram-box">
+<pre class="text-xs text-slate-600">sidecar/browser.rs
+└─ detect_browser(process: &str)
+   → BrowserName          ← seam
+   // CHROME, FIREFOX, ARC...
+
+ext/background/browser.ts
+└─ detectBrowser(): BrowserName
+   // UA lookup table only
+
+Both use shared BrowserName enum
+from shared-proto</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CANDIDATE 4: Connection Lifecycle Module -->
+<div class="card">
+  <div class="card-header flex items-start justify-between gap-4">
+    <div>
+      <div class="section-label">Candidate 4</div>
+      <h2 class="text-xl font-bold">Connection Lifecycle Module</h2>
+    </div>
+    <span class="badge-worth text-xs font-semibold px-3 py-1 rounded-full mt-1 whitespace-nowrap">Worth exploring</span>
+  </div>
+  <div class="card-body">
+    <div class="mb-4">
+      <div class="section-label">Files</div>
+      <span class="file-chip">packages/app-tauri/src/store.ts (startListening)</span>
+      <span class="file-chip">packages/ext-plasmo/src/background.ts (connect)</span>
+      <span class="file-chip">packages/sidecar/src/main.rs (ws loop)</span>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Problem</div>
+      <p class="text-slate-700 text-sm">Reconnect logic, backoff, and "is connection ready" state are duplicated across the extension and the sidecar. The store's <code class="bg-slate-100 px-1 rounded text-xs">startListening()</code> is 50+ LOC that mixes event subscription, error recovery, and presence tracking. One adapter = hypothetical seam; here there are two or three ad-hoc implementations, which means the seam is real but currently implicit.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Solution</div>
+      <p class="text-slate-700 text-sm">Extract a <code class="bg-slate-100 px-1 rounded text-xs">ConnectionManager</code> with a clear lifecycle interface: <code class="bg-slate-100 px-1 rounded text-xs">connect() / disconnect() / onStatusChange(cb)</code>. The manager owns backoff, keeps <code class="bg-slate-100 px-1 rounded text-xs">status: "connecting" | "connected" | "disconnected"</code>, and exposes an observable status. The store only subscribes to status changes.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Benefits</div>
+      <ul class="text-slate-700 text-sm list-disc list-inside space-y-1">
+        <li><strong>Locality:</strong> All reconnect bugs live in <code class="bg-slate-100 px-1 rounded text-xs">ConnectionManager</code></li>
+        <li><strong>Leverage:</strong> <code class="bg-slate-100 px-1 rounded text-xs">startListening</code> shrinks from 50 LOC to 5</li>
+        <li><strong>Testability:</strong> Inject a mock <code class="bg-slate-100 px-1 rounded text-xs">ConnectionManager</code> — test the store's reaction to disconnect without real WebSockets</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- CANDIDATE 5: Configuration Module -->
+<div class="card">
+  <div class="card-header flex items-start justify-between gap-4">
+    <div>
+      <div class="section-label">Candidate 5</div>
+      <h2 class="text-xl font-bold">Configuration Module</h2>
+    </div>
+    <span class="badge-spec text-xs font-semibold px-3 py-1 rounded-full mt-1 whitespace-nowrap">Speculative</span>
+  </div>
+  <div class="card-body">
+    <div class="mb-4">
+      <div class="section-label">Files</div>
+      <span class="file-chip">packages/app-tauri/src-tauri/src/bridge_ws.rs</span>
+      <span class="file-chip">packages/sidecar/src/main.rs</span>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Problem</div>
+      <p class="text-slate-700 text-sm">Port numbers (17342, 17888) are hardcoded in both Rust and TypeScript. A user running two instances, or a developer switching environments, has no way to override this without recompiling. Not a critical friction point today, but will become painful as the project grows.</p>
+    </div>
+    <div class="mb-4">
+      <div class="section-label">Solution</div>
+      <p class="text-slate-700 text-sm">Extract a <code class="bg-slate-100 px-1 rounded text-xs">config.rs</code> / <code class="bg-slate-100 px-1 rounded text-xs">config.ts</code> that reads from env vars with compiled-in defaults. Shallow change, but concentrates the configuration surface.</p>
+    </div>
+  </div>
+</div>
+
+<!-- DATA FLOW DIAGRAM -->
+<div class="card">
+  <div class="card-header">
+    <div class="section-label">Current Architecture</div>
+    <h2 class="text-xl font-bold">Data Flow Overview</h2>
+  </div>
+  <div class="card-body">
+    <div class="mermaid">
+graph LR
+    EXT["Browser Extension\n(MV3 Service Worker)"]
+    SC["Sidecar\n(Rust)"]
+    APP["Tauri App\n(React + Zustand)"]
+
+    EXT -- "native messaging stdio\ntabs.delta / tabs.list" --> SC
+    SC -- "WebSocket :17342\nenvelope JSON" --> APP
+    APP -- "WebSocket :17342\ntabs.openOrFocus / presence.query" --> SC
+    SC -- "native messaging stdio\ncommands" --> EXT
+
+    style EXT fill:#dbeafe,stroke:#93c5fd
+    style SC fill:#fef9c3,stroke:#fde68a
+    style APP fill:#dcfce7,stroke:#86efac
+    </div>
+  </div>
+</div>
+
+<!-- TOP RECOMMENDATION -->
+<div class="top-rec mt-8">
+  <div class="text-blue-200 text-xs font-semibold uppercase tracking-widest mb-2">Top Recommendation</div>
+  <h2 class="text-2xl font-bold text-white mb-3">Start with the Envelope Handler Registry</h2>
+  <p class="text-blue-100 text-sm leading-relaxed mb-4">
+    The 360-line switch statement in <code class="bg-blue-900/40 px-1 rounded">store.ts</code> is the single biggest architectural liability. It makes every new message type a risky edit, and it's impossible to test handlers in isolation. An envelope registry is a small interface (two functions) with enormous leverage — it turns a monolith into a plugin system. This is the kind of change that makes the codebase feel immediately more AI-navigable: an agent can reason about <code class="bg-blue-900/40 px-1 rounded">handlers/tabs-delta.ts</code> without loading 300 lines of unrelated handler code into context.
+  </p>
+  <p class="text-blue-200 text-xs">
+    After the registry, the Tab Delta Merger is the natural second step — it cleans up the largest handler and makes the reconciliation logic reusable across runtimes.
+  </p>
+</div>
+
+<div class="mt-8 text-slate-400 text-xs">
+  Generated by /improve-codebase-architecture · Bridge Between Tauri and Browser Extension · refactor branch
+</div>
+
+</body>
+</html>

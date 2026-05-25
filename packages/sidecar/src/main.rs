@@ -50,14 +50,30 @@ fn detect_browser() -> String {
             if let Some(name) = get_process_name_by_pid(parent_pid) {
                 info!("BRIDGE_BROWSER found the parent pid of '{}' {}", name, parent_pid);
                 let lower = name.to_lowercase();
-                if lower.contains("chrome.exe") {
-                    return "Chrome".to_string();
-                } else if lower.contains("msedge.exe") {
+                if lower.contains("msedge.exe") {
                     return "Edge".to_string();
                 } else if lower.contains("brave.exe") {
                     return "Brave".to_string();
                 } else if lower.contains("comet.exe") {
                     return "Comet".to_string();
+                } else if lower.contains("arc.exe") {
+                    return "Arc".to_string();
+                } else if lower.contains("vivaldi.exe") {
+                    return "Vivaldi".to_string();
+                } else if lower.contains("opera.exe") {
+                    return "Opera".to_string();
+                } else if lower.contains("whale.exe") {
+                    return "Whale".to_string();
+                } else if lower.contains("librewolf.exe") {
+                    return "LibreWolf".to_string();
+                } else if lower.contains("floorp.exe") {
+                    return "Floorp".to_string();
+                } else if lower.contains("thorium.exe") {
+                    return "Thorium".to_string();
+                } else if lower.contains("chromium.exe") {
+                    return "Chromium".to_string();
+                } else if lower.contains("chrome.exe") {
+                    return "Chrome".to_string();
                 }
                 return name;
             }
@@ -69,16 +85,34 @@ fn detect_browser() -> String {
     {
         if let Some(name) = get_parent_process_name_macos() {
             let lower = name.to_lowercase();
-            if lower.contains("chrome") {
-                return "Chrome".to_string();
-            } else if lower.contains("msedge") {
+            if lower.contains("msedge") {
                 return "Edge".to_string();
             } else if lower.contains("brave") {
                 return "Brave".to_string();
             } else if lower.contains("comet") || lower.contains("perplexity") {
                 return "Comet".to_string();
+            } else if lower.contains("arc") {
+                return "Arc".to_string();
+            } else if lower.contains("vivaldi") {
+                return "Vivaldi".to_string();
+            } else if lower.contains("opera") {
+                return "Opera".to_string();
+            } else if lower.contains("yandex") {
+                return "Yandex".to_string();
+            } else if lower.contains("whale") {
+                return "Whale".to_string();
+            } else if lower.contains("librewolf") {
+                return "LibreWolf".to_string();
+            } else if lower.contains("floorp") {
+                return "Floorp".to_string();
+            } else if lower.contains("thorium") {
+                return "Thorium".to_string();
+            } else if lower.contains("chromium") {
+                return "Chromium".to_string();
             } else if lower.contains("firefox") {
                 return "Firefox".to_string();
+            } else if lower.contains("chrome") {
+                return "Chrome".to_string();
             }
             return name;
         }
@@ -88,14 +122,32 @@ fn detect_browser() -> String {
     {
         if let Some(name) = get_parent_process_name_linux() {
             let lower = name.to_lowercase();
-            if lower.contains("chrome") {
-                return "Chrome".to_string();
-            } else if lower.contains("msedge") {
+            if lower.contains("msedge") {
                 return "Edge".to_string();
             } else if lower.contains("brave") {
                 return "Brave".to_string();
+            } else if lower.contains("arc") {
+                return "Arc".to_string();
+            } else if lower.contains("vivaldi") {
+                return "Vivaldi".to_string();
+            } else if lower.contains("opera") {
+                return "Opera".to_string();
+            } else if lower.contains("yandex") {
+                return "Yandex".to_string();
+            } else if lower.contains("whale") {
+                return "Whale".to_string();
+            } else if lower.contains("librewolf") {
+                return "LibreWolf".to_string();
+            } else if lower.contains("floorp") {
+                return "Floorp".to_string();
+            } else if lower.contains("thorium") {
+                return "Thorium".to_string();
+            } else if lower.contains("chromium") {
+                return "Chromium".to_string();
             } else if lower.contains("firefox") {
                 return "Firefox".to_string();
+            } else if lower.contains("chrome") {
+                return "Chrome".to_string();
             }
             return name;
         }
