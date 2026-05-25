@@ -41,7 +41,10 @@ import { toast } from "sonner";
 import type { BrowserTabSnapshot } from "../types";
 import type { TabDescriptor } from "@bridge/shared-proto";
 import { BrowserIcon } from "./BrowserIcon";
+import { DateGroupingToggle } from "./DateGroupingToggle";
+import { DateStampBadge } from "./DateStampBadge";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
+import { groupItemsByDay } from "../utils/dateGroups";
 
 // Pool of fun icons used as the per-window emblem. In the real app the user
 // will be able to pick one from a library; for now we hash the windowId so
@@ -110,6 +113,7 @@ interface CurrentSessionWindow {
   browser: string;
   connectionId: string;
   lastUpdate: number;
+  firstSeenAt?: number;
 }
 
 const getSnapshotWindows = (snapshot: BrowserTabSnapshot): CurrentSessionWindow[] => {
@@ -175,6 +179,28 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 }) => {
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<ViewMode>("list");
+  const [groupByDate, setGroupByDate] = React.useState(false);
+  const firstSeenRef = React.useRef(new Map<string, number>());
+
+  const sessionWindows = React.useMemo(() => {
+    const windows = snapshots.flatMap((snapshot) => getSnapshotWindows(snapshot)).map((window) => {
+      const existingFirstSeen = firstSeenRef.current.get(window.key);
+      const firstSeenAt = existingFirstSeen ?? Date.now();
+      if (existingFirstSeen == null) {
+        firstSeenRef.current.set(window.key, firstSeenAt);
+      }
+      return { ...window, firstSeenAt };
+    });
+
+    const visibleKeys = new Set(windows.map((window) => window.key));
+    for (const key of Array.from(firstSeenRef.current.keys())) {
+      if (!visibleKeys.has(key)) {
+        firstSeenRef.current.delete(key);
+      }
+    }
+
+    return windows;
+  }, [snapshots]);
 
   React.useEffect(() => {
     if (extensionStatus === "online") {
@@ -212,10 +238,13 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   return (
     <section className="space-y-4">
       <div className="flex justify-end">
-        <ViewModeToggle value={viewMode} onChange={setViewMode} />
+        <div className="flex flex-wrap items-center gap-3">
+          <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
+        </div>
       </div>
 
-      {viewMode === "list" && (
+      {!groupByDate && viewMode === "list" && (
         <div className="space-y-8">
           {snapshots.map((snapshot) => (
             <ConnectionCard
@@ -229,19 +258,23 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
         </div>
       )}
 
-      {viewMode === "grid" && (
+      {!groupByDate && viewMode === "grid" && (
         <CurrentSessionGrid
-          snapshots={snapshots}
+          windows={sessionWindows}
           isSending={isSending}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
       )}
 
-      {viewMode === "time" && (
-        <TimeBasedPlaceholder>
-          Time-based current-session view is ready for the grouping rules once you define them.
-        </TimeBasedPlaceholder>
+      {groupByDate && (
+        <CurrentSessionDateGroups
+          windows={sessionWindows}
+          viewMode={viewMode}
+          isSending={isSending}
+          onSave={onSaveTabs}
+          onFocus={onFocusTab}
+        />
       )}
     </section>
   );
@@ -332,7 +365,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ snapshot, isSending, on
 };
 
 const CurrentSessionGrid: React.FC<{
-  snapshots: BrowserTabSnapshot[];
+  windows: CurrentSessionWindow[];
   isSending: boolean;
   onSave: (
     tabs: TabDescriptor[],
@@ -342,12 +375,7 @@ const CurrentSessionGrid: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ snapshots, isSending, onSave, onFocus }) => {
-  const windows = React.useMemo(
-    () => snapshots.flatMap((snapshot) => getSnapshotWindows(snapshot)),
-    [snapshots]
-  );
-
+}> = ({ windows, isSending, onSave, onFocus }) => {
   if (windows.length === 0) {
     return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
   }
@@ -355,9 +383,10 @@ const CurrentSessionGrid: React.FC<{
   return (
     <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
       {windows.map((window) => (
-        <WindowGridCard
+        <WindowCard
           key={window.key}
           window={window}
+          layout="grid"
           isSending={isSending}
           onSave={onSave}
           onFocus={onFocus}
@@ -367,8 +396,9 @@ const CurrentSessionGrid: React.FC<{
   );
 };
 
-const WindowGridCard: React.FC<{
-  window: CurrentSessionWindow;
+const CurrentSessionDateGroups: React.FC<{
+  windows: CurrentSessionWindow[];
+  viewMode: ViewMode;
   isSending: boolean;
   onSave: (
     tabs: TabDescriptor[],
@@ -378,12 +408,82 @@ const WindowGridCard: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ window, isSending, onSave, onFocus }) => {
-  const WindowIcon = window.windowId != null ? getWindowIcon(window.windowId) : null;
-  const displayLabel = window.label ?? `Window ${window.windowIndex ?? "?"}`;
+}> = ({ windows, viewMode, isSending, onSave, onFocus }) => {
+  const groupedWindows = React.useMemo(
+    () =>
+      groupItemsByDay(windows, (window) => window.firstSeenAt ?? window.lastUpdate).map((group) => ({
+        ...group,
+        items: [...group.items].sort(
+          (a, b) => (b.firstSeenAt ?? b.lastUpdate) - (a.firstSeenAt ?? a.lastUpdate)
+        )
+      })),
+    [windows]
+  );
+
+  if (groupedWindows.length === 0) {
+    return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
+  }
 
   return (
-    <article className="mb-4 break-inside-avoid rounded-xl border border-[#16161a] bg-[#141414] p-3">
+    <div className="space-y-14">
+      {groupedWindows.map((group) => (
+        <section key={group.dayStart} className="space-y-6">
+          <DateStampBadge timestamp={group.dayStart} />
+          {viewMode === "grid" ? (
+            <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+              {group.items.map((window) => (
+                <WindowCard
+                  key={window.key}
+                  window={window}
+                  layout="grid"
+                  isSending={isSending}
+                  onSave={onSave}
+                  onFocus={onFocus}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {group.items.map((window) => (
+                <WindowCard
+                  key={window.key}
+                  window={window}
+                  layout="list"
+                  isSending={isSending}
+                  onSave={onSave}
+                  onFocus={onFocus}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+};
+
+const WindowCard: React.FC<{
+  window: CurrentSessionWindow;
+  layout: "grid" | "list";
+  isSending: boolean;
+  onSave: (
+    tabs: TabDescriptor[],
+    meta: { browser: string; connectionId: string; windowId?: number | null }
+  ) => void;
+  onFocus: (
+    tab: TabDescriptor,
+    options?: { connectionId?: string; preferWindowId?: number }
+  ) => void;
+}> = ({ window, layout, isSending, onSave, onFocus }) => {
+  const WindowIcon = window.windowId != null ? getWindowIcon(window.windowId) : null;
+  const displayLabel = window.label ?? `Window ${window.windowIndex ?? "?"}`;
+  const cardClass =
+    layout === "grid"
+      ? "mb-4 break-inside-avoid rounded-xl border border-[#16161a] bg-[#141414] p-3"
+      : "rounded-xl border border-[#16161a] bg-[#141414] p-3";
+
+  return (
+    <article className={cardClass}>
       <div className="flex items-start gap-2">
         <BrowserIcon browser={window.browser} className="w-4 h-4 mt-0.5" />
         <div className="min-w-0 flex-1">
@@ -409,7 +509,7 @@ const WindowGridCard: React.FC<{
             })
           }
           disabled={window.tabs.length === 0}
-          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-purple-100 hover:bg-purple-500/12 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-gray-100 hover:bg-[#202020] rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           title="Save all tabs in this window"
         >
           <Save className="w-3.5 h-3.5" aria-hidden="true" />
@@ -432,12 +532,6 @@ const WindowGridCard: React.FC<{
     </article>
   );
 };
-
-const TimeBasedPlaceholder: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="rounded-xl border border-dashed border-gray-700 bg-gray-900/20 px-4 py-8 text-center">
-    <p className="text-sm text-gray-400">{children}</p>
-  </div>
-);
 
 interface WindowGroupProps {
   /** Sequential 1-based index used to render "Window N". Required when windowId is given. */

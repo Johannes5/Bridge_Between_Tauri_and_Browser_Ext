@@ -4,7 +4,10 @@ import type { SavedTabCollection, BrowserTabSnapshot } from "../types";
 import type { TabDescriptor } from "@bridge/shared-proto";
 import { getSavedWindowLabel } from "../utils/savedWindowLabel";
 import { BrowserIcon } from "./BrowserIcon";
+import { DateGroupingToggle } from "./DateGroupingToggle";
+import { DateStampBadge } from "./DateStampBadge";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
+import { groupItemsByDay } from "../utils/dateGroups";
 
 interface SavedCollectionsListProps {
   collections: SavedTabCollection[];
@@ -29,6 +32,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
   const [viewMode, setViewMode] = React.useState<ViewMode>("list");
+  const [groupByDate, setGroupByDate] = React.useState(false);
   const editInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -236,10 +240,18 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
     );
   };
 
+  const groupedCollections = React.useMemo(
+    () => groupItemsByDay(collections, (entry) => entry.savedAt),
+    [collections]
+  );
+
   return (
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <ViewModeToggle value={viewMode} onChange={setViewMode} />
+        <div className="flex flex-wrap items-center gap-3">
+          <DateGroupingToggle enabled={groupByDate} onChange={setGroupByDate} />
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
+        </div>
         <button
           className="text-gray-400 hover:text-gray-200 hover:bg-[#1a1a1a] text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 rounded px-2 py-1"
           onClick={onClear}
@@ -250,19 +262,30 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
       </div>
       {collections.length === 0 ? (
         <p className="text-gray-500 text-sm italic">No saved tab sets yet.</p>
+      ) : groupByDate ? (
+        <div className="space-y-14">
+          {groupedCollections.map((group) => (
+            <section key={group.dayStart} className="space-y-6">
+              <DateStampBadge timestamp={group.dayStart} />
+              {viewMode === "grid" ? (
+                <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+                  {group.items.map((entry) => renderCollection(entry, "grid"))}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {group.items.map((entry) => renderCollection(entry, "list"))}
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
       ) : viewMode === "list" ? (
         <div className="space-y-4">
           {collections.map((entry) => renderCollection(entry, "list"))}
         </div>
-      ) : viewMode === "grid" ? (
+      ) : (
         <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
           {collections.map((entry) => renderCollection(entry, "grid"))}
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-[#2a2a2a] bg-[#141414] px-4 py-8 text-center">
-          <p className="text-sm text-gray-400">
-            Time-based saved-collections view is ready for the grouping rules once you define them.
-          </p>
         </div>
       )}
     </section>

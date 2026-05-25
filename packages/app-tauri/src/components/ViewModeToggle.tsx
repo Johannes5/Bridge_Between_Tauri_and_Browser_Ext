@@ -1,7 +1,7 @@
 import * as React from "react";
-import { Clock3, LayoutGrid, List, type LucideIcon } from "lucide-react";
+import { LayoutGrid, List, type LucideIcon } from "lucide-react";
 
-export type ViewMode = "list" | "grid" | "time";
+export type ViewMode = "list" | "grid";
 
 interface ViewModeToggleProps {
   value: ViewMode;
@@ -15,8 +15,7 @@ const VIEW_MODES: Array<{
   icon: LucideIcon;
 }> = [
   { value: "list", label: "List", icon: List },
-  { value: "grid", label: "Grid", icon: LayoutGrid },
-  { value: "time", label: "Time-Based", icon: Clock3 }
+  { value: "grid", label: "Grid", icon: LayoutGrid }
 ];
 
 export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
