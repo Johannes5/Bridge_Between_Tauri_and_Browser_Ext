@@ -51,6 +51,7 @@ import { TabVideoMeta } from "./TabVideoMeta";
 import { TabHoverTooltip } from "./TabHoverTooltip";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { groupItemsByDay } from "../utils/dateGroups";
+import { HighlightText, normalizeSearchQuery, tabMatchesSearch, textMatchesSearch } from "./SearchHighlight";
 
 // Pool of fun icons used as the per-window emblem. In the real app the user
 // will be able to pick one from a library; for now we hash the windowId so
@@ -218,6 +219,8 @@ interface ActiveConnectionsListProps {
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
+  filterQuery?: string;
+  findQuery?: string;
 }
 
 export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
@@ -225,7 +228,9 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   isSending,
   extensionStatus,
   onSaveTabs,
-  onFocusTab
+  onFocusTab,
+  filterQuery = "",
+  findQuery = ""
 }) => {
   const [isInitializing, setIsInitializing] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<ViewMode>(DEFAULT_VIEW_MODE);
@@ -236,6 +241,10 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
   const currentViewSettings = viewSettingsByMode[viewMode];
   const { groupByDate, groupByWindow, imageDisplayMode, thumbnailsOnly, columnWidth } =
     currentViewSettings;
+  const normalizedFilterQuery = React.useMemo(() => normalizeSearchQuery(filterQuery), [filterQuery]);
+  const hasFilter = normalizedFilterQuery.length > 0;
+  const highlightQuery = hasFilter ? filterQuery : findQuery;
+  const effectiveGroupByWindow = groupByWindow || hasFilter;
   const masonryStyle = React.useMemo(
     () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
     [columnWidth]
@@ -261,9 +270,25 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
     return windows;
   }, [snapshots]);
 
+  const windowMatchesFilter = React.useCallback((window: CurrentSessionWindow, query: string) => {
+    if (!query) return true;
+    const label = window.label ?? `Window ${window.windowIndex ?? "?"}`;
+    return (
+      textMatchesSearch(
+        [label, window.browser, window.connectionId, window.windowId, formatTime(window.lastUpdate)],
+        query
+      ) || window.tabs.some((tab) => tabMatchesSearch(tab, query))
+    );
+  }, []);
+
+  const visibleSessionWindows = React.useMemo(
+    () => sessionWindows.filter((window) => windowMatchesFilter(window, normalizedFilterQuery)),
+    [normalizedFilterQuery, sessionWindows, windowMatchesFilter]
+  );
+
   const sessionTabs = React.useMemo(
     () =>
-      sessionWindows.flatMap((window) =>
+      visibleSessionWindows.flatMap((window) =>
         window.tabs.map((tab, index) => ({
           key: `${window.key}-${tab.id ?? tab.url ?? index}`,
           tab,
@@ -273,7 +298,7 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
           timestamp: window.firstSeenAt ?? window.lastUpdate
         }))
       ),
-    [sessionWindows]
+    [visibleSessionWindows]
   );
 
   React.useEffect(() => {
@@ -372,27 +397,52 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 
       {!groupByDate && viewMode === "list" && (
         <div className="space-y-8">
-          {snapshots.map((snapshot) => (
-            <ConnectionCard
-              key={snapshot.connectionId}
-              snapshot={snapshot}
-              isSending={isSending}
-              imageDisplayMode={imageDisplayMode}
-              thumbnailsOnly={thumbnailsOnly}
-              onSave={onSaveTabs}
-              onFocus={onFocusTab}
-            />
-          ))}
+          {hasFilter ? (
+            visibleSessionWindows.length === 0 ? (
+              <p className="text-gray-500 text-sm italic">No current windows match the filter.</p>
+            ) : (
+              visibleSessionWindows.map((window) => (
+                <WindowCard
+                  key={window.key}
+                  window={window}
+                  layout="list"
+                  isSending={isSending}
+                  imageDisplayMode={imageDisplayMode}
+                  thumbnailsOnly={thumbnailsOnly}
+                  findQuery={findQuery}
+                  highlightQuery={highlightQuery}
+                  onSave={onSaveTabs}
+                  onFocus={onFocusTab}
+                />
+              ))
+            )
+          ) : (
+            snapshots.map((snapshot) => (
+              <ConnectionCard
+                key={snapshot.connectionId}
+                snapshot={snapshot}
+                isSending={isSending}
+                imageDisplayMode={imageDisplayMode}
+                thumbnailsOnly={thumbnailsOnly}
+                findQuery={findQuery}
+                highlightQuery={highlightQuery}
+                onSave={onSaveTabs}
+                onFocus={onFocusTab}
+              />
+            ))
+          )}
         </div>
       )}
 
       {!groupByDate && viewMode === "grid" && (
         <CurrentSessionGrid
-          windows={sessionWindows}
+          windows={visibleSessionWindows}
           masonryStyle={masonryStyle}
           isSending={isSending}
           imageDisplayMode={imageDisplayMode}
           thumbnailsOnly={thumbnailsOnly}
+          findQuery={findQuery}
+          highlightQuery={highlightQuery}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
@@ -400,14 +450,16 @@ export const ActiveConnectionsList: React.FC<ActiveConnectionsListProps> = ({
 
       {groupByDate && (
         <CurrentSessionDateGroups
-          windows={sessionWindows}
+          windows={visibleSessionWindows}
           tabs={sessionTabs}
           viewMode={viewMode}
           masonryStyle={masonryStyle}
           isSending={isSending}
           imageDisplayMode={imageDisplayMode}
           thumbnailsOnly={thumbnailsOnly}
-          groupByWindow={groupByWindow}
+          groupByWindow={effectiveGroupByWindow}
+          findQuery={findQuery}
+          highlightQuery={highlightQuery}
           onSave={onSaveTabs}
           onFocus={onFocusTab}
         />
@@ -421,6 +473,8 @@ interface ConnectionCardProps {
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
   thumbnailsOnly: boolean;
+  findQuery: string;
+  highlightQuery: string;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -436,6 +490,8 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({
   isSending,
   imageDisplayMode,
   thumbnailsOnly,
+  findQuery,
+  highlightQuery,
   onSave,
   onFocus
 }) => {
@@ -489,6 +545,8 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({
               isSending={isSending}
               imageDisplayMode={imageDisplayMode}
               thumbnailsOnly={thumbnailsOnly}
+              findQuery={findQuery}
+              highlightQuery={highlightQuery}
               onSave={onSave}
               onFocus={onFocus}
             />
@@ -503,6 +561,8 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({
               isSending={isSending}
               imageDisplayMode={imageDisplayMode}
               thumbnailsOnly={thumbnailsOnly}
+              findQuery={findQuery}
+              highlightQuery={highlightQuery}
               onSave={onSave}
               onFocus={onFocus}
             />
@@ -519,6 +579,8 @@ const CurrentSessionGrid: React.FC<{
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
   thumbnailsOnly: boolean;
+  findQuery: string;
+  highlightQuery: string;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -527,7 +589,17 @@ const CurrentSessionGrid: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ windows, masonryStyle, isSending, imageDisplayMode, thumbnailsOnly, onSave, onFocus }) => {
+}> = ({
+  windows,
+  masonryStyle,
+  isSending,
+  imageDisplayMode,
+  thumbnailsOnly,
+  findQuery,
+  highlightQuery,
+  onSave,
+  onFocus
+}) => {
   if (windows.length === 0) {
     return <p className="text-gray-500 text-sm italic">No tabs available.</p>;
   }
@@ -542,6 +614,8 @@ const CurrentSessionGrid: React.FC<{
           isSending={isSending}
           imageDisplayMode={imageDisplayMode}
           thumbnailsOnly={thumbnailsOnly}
+          findQuery={findQuery}
+          highlightQuery={highlightQuery}
           onSave={onSave}
           onFocus={onFocus}
         />
@@ -559,6 +633,8 @@ const CurrentSessionDateGroups: React.FC<{
   imageDisplayMode: ImageDisplayMode;
   thumbnailsOnly: boolean;
   groupByWindow: boolean;
+  findQuery: string;
+  highlightQuery: string;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -576,6 +652,8 @@ const CurrentSessionDateGroups: React.FC<{
   imageDisplayMode,
   thumbnailsOnly,
   groupByWindow,
+  findQuery,
+  highlightQuery,
   onSave,
   onFocus
 }) => {
@@ -626,6 +704,8 @@ const CurrentSessionDateGroups: React.FC<{
                     isSending={isSending}
                     imageDisplayMode={imageDisplayMode}
                     thumbnailsOnly={thumbnailsOnly}
+                    findQuery={findQuery}
+                    highlightQuery={highlightQuery}
                     onSave={onSave}
                     onFocus={onFocus}
                   />
@@ -641,6 +721,8 @@ const CurrentSessionDateGroups: React.FC<{
                     isSending={isSending}
                     imageDisplayMode={imageDisplayMode}
                     thumbnailsOnly={thumbnailsOnly}
+                    findQuery={findQuery}
+                    highlightQuery={highlightQuery}
                     onSave={onSave}
                     onFocus={onFocus}
                   />
@@ -670,6 +752,8 @@ const CurrentSessionDateGroups: React.FC<{
                   isSending={isSending}
                   imageDisplayMode={imageDisplayMode}
                   thumbnailsOnly={thumbnailsOnly}
+                  findQuery={findQuery}
+                  highlightQuery={highlightQuery}
                   onFocus={onFocus}
                 />
               ))}
@@ -685,6 +769,8 @@ const CurrentSessionDateGroups: React.FC<{
                   isSending={isSending}
                   imageDisplayMode={imageDisplayMode}
                   thumbnailsOnly={thumbnailsOnly}
+                  findQuery={findQuery}
+                  highlightQuery={highlightQuery}
                   onFocus={onFocus}
                 />
               ))}
@@ -702,6 +788,8 @@ const WindowCard: React.FC<{
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
   thumbnailsOnly: boolean;
+  findQuery: string;
+  highlightQuery: string;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -710,7 +798,17 @@ const WindowCard: React.FC<{
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
   ) => void;
-}> = ({ window, layout, isSending, imageDisplayMode, thumbnailsOnly, onSave, onFocus }) => {
+}> = ({
+  window,
+  layout,
+  isSending,
+  imageDisplayMode,
+  thumbnailsOnly,
+  findQuery,
+  highlightQuery,
+  onSave,
+  onFocus
+}) => {
   const WindowIcon = window.windowId != null ? getWindowIcon(window.windowId) : null;
   const displayLabel = window.label ?? `Window ${window.windowIndex ?? "?"}`;
   const cardClass =
@@ -724,7 +822,9 @@ const WindowCard: React.FC<{
         <BrowserIcon browser={window.browser} className="w-4 h-4 mt-0.5" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-gray-100 truncate">{displayLabel}</h3>
+            <h3 className="text-sm font-semibold text-gray-100 truncate">
+              <HighlightText text={displayLabel} query={highlightQuery} />
+            </h3>
             {WindowIcon && <WindowIcon className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 font-mono">
@@ -763,6 +863,8 @@ const WindowCard: React.FC<{
             isSending={isSending}
             imageDisplayMode={imageDisplayMode}
             thumbnailsOnly={thumbnailsOnly}
+            findQuery={findQuery}
+            highlightQuery={highlightQuery}
             onFocus={onFocus}
           />
         ))}
@@ -784,6 +886,8 @@ interface WindowGroupProps {
   isSending: boolean;
   imageDisplayMode: ImageDisplayMode;
   thumbnailsOnly: boolean;
+  findQuery: string;
+  highlightQuery: string;
   onSave: (
     tabs: TabDescriptor[],
     meta: { browser: string; connectionId: string; windowId?: number | null }
@@ -804,6 +908,8 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
   isSending,
   imageDisplayMode,
   thumbnailsOnly,
+  findQuery,
+  highlightQuery,
   onSave,
   onFocus
 }) => {
@@ -819,7 +925,7 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
       {/* Window header */}
       <div className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-purple-500/10 transition-colors">
         <BrowserIcon browser={browser} className="w-4 h-4" />
-        <span className="text-gray-100 font-medium">{displayLabel}</span>
+        <HighlightText className="text-gray-100 font-medium" text={displayLabel} query={highlightQuery} />
         {WindowIcon && <WindowIcon className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />}
 
         <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -856,6 +962,8 @@ const WindowGroup: React.FC<WindowGroupProps> = ({
             isSending={isSending}
             imageDisplayMode={imageDisplayMode}
             thumbnailsOnly={thumbnailsOnly}
+            findQuery={findQuery}
+            highlightQuery={highlightQuery}
             onFocus={onFocus}
           />
         ))}
@@ -872,6 +980,8 @@ interface TabRowProps {
   imageDisplayMode: ImageDisplayMode;
   thumbnailsOnly: boolean;
   className?: string;
+  findQuery: string;
+  highlightQuery: string;
   onFocus: (
     tab: TabDescriptor,
     options?: { connectionId?: string; preferWindowId?: number }
@@ -886,6 +996,8 @@ const TabRow: React.FC<TabRowProps> = ({
   imageDisplayMode,
   thumbnailsOnly,
   className = "",
+  findQuery,
+  highlightQuery,
   onFocus
 }) => {
   const domain = getDomain(tab.url);
@@ -894,6 +1006,9 @@ const TabRow: React.FC<TabRowProps> = ({
   const isLargeImage = imageDisplayMode === "large";
   const durationOverlayText = isLargeImage ? tab.videoDurationText : undefined;
   const allowPreviewImage = shouldShowPreviewImage(tab, thumbnailsOnly);
+  const matchesFind = normalizeSearchQuery(findQuery).length > 0 && tabMatchesSearch(tab, findQuery);
+  const shouldShowMatchedUrl =
+    normalizeSearchQuery(highlightQuery).length > 0 && !!tab.url && textMatchesSearch([tab.url], highlightQuery);
 
   const handleFocus = () => {
     if (disabled) return;
@@ -914,6 +1029,7 @@ const TabRow: React.FC<TabRowProps> = ({
 
   return (
     <li
+      data-find-match={matchesFind ? "true" : undefined}
       role="button"
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
@@ -962,11 +1078,22 @@ const TabRow: React.FC<TabRowProps> = ({
             )}
 
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-mono text-gray-500 truncate">{domain || "local"}</div>
+              <HighlightText
+                className="text-xs font-mono text-gray-500 truncate"
+                text={domain || "local"}
+                query={highlightQuery}
+              />
               <span className="mt-0.5 block text-sm text-gray-200 truncate">
-                {tab.title ?? "Untitled"}
+                <HighlightText text={tab.title} fallback="Untitled" query={highlightQuery} />
               </span>
               <TabVideoMeta tab={tab} className="mt-1" showDuration={!isLargeImage} />
+              {shouldShowMatchedUrl && (
+                <HighlightText
+                  className="mt-1 block truncate font-mono text-xs text-gray-500"
+                  text={tab.url}
+                  query={highlightQuery}
+                />
+              )}
             </div>
 
             <div className="ml-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">

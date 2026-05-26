@@ -36,3 +36,8 @@ body {
   break-inside: avoid;
   page-break-inside: avoid;
 }
+
+[data-find-active="true"] {
+  outline: 2px solid rgba(251, 191, 36, 0.7);
+  outline-offset: 2px;
+}

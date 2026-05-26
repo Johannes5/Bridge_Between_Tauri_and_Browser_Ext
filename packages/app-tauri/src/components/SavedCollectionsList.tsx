@@ -14,6 +14,7 @@ import { TabVideoMeta } from "./TabVideoMeta";
 import { TabHoverTooltip } from "./TabHoverTooltip";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { groupItemsByDay } from "../utils/dateGroups";
+import { HighlightText, normalizeSearchQuery, tabMatchesSearch, textMatchesSearch } from "./SearchHighlight";
 
 const DEFAULT_VIEW_MODE: ViewMode = "grid";
 const DEFAULT_GROUP_BY_DATE = true;
@@ -65,6 +66,8 @@ interface SavedCollectionsListProps {
   onRename: (id: string, label: string) => void;
   onRestore: (entry: SavedTabCollection, suspend: boolean) => void;
   onOpenTab: (tab: TabDescriptor, options?: { connectionId?: string; preferWindowId?: number }) => void;
+  filterQuery?: string;
+  findQuery?: string;
 }
 
 export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
@@ -74,7 +77,9 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   onRemove,
   onRename,
   onRestore,
-  onOpenTab
+  onOpenTab,
+  filterQuery = "",
+  findQuery = ""
 }) => {
   const [expandedSaved, setExpandedSaved] = React.useState<Record<string, boolean>>({});
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -87,6 +92,11 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   const currentViewSettings = viewSettingsByMode[viewMode];
   const { groupByDate, groupByWindow, imageDisplayMode, thumbnailsOnly, columnWidth } =
     currentViewSettings;
+  const normalizedFilterQuery = React.useMemo(() => normalizeSearchQuery(filterQuery), [filterQuery]);
+  const normalizedFindQuery = React.useMemo(() => normalizeSearchQuery(findQuery), [findQuery]);
+  const hasFilter = normalizedFilterQuery.length > 0;
+  const highlightQuery = hasFilter ? filterQuery : findQuery;
+  const effectiveGroupByWindow = groupByWindow || hasFilter;
   const masonryStyle = React.useMemo(
     () => ({ ["--masonry-column-width" as string]: `${columnWidth}px` }) as React.CSSProperties,
     [columnWidth]
@@ -111,9 +121,30 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
     [viewMode]
   );
 
+  const collectionMatchesFilter = React.useCallback((entry: SavedTabCollection, query: string) => {
+    if (!query) return true;
+    return (
+      textMatchesSearch(
+        [
+          getSavedWindowLabel(entry),
+          entry.browser,
+          entry.source,
+          entry.windowId,
+          new Date(entry.savedAt).toLocaleString()
+        ],
+        query
+      ) || entry.tabs.some((tab) => tabMatchesSearch(tab, query))
+    );
+  }, []);
+
+  const visibleCollections = React.useMemo(
+    () => collections.filter((entry) => collectionMatchesFilter(entry, normalizedFilterQuery)),
+    [collectionMatchesFilter, collections, normalizedFilterQuery]
+  );
+
   const flatTabs = React.useMemo<SavedTabItem[]>(
     () =>
-      collections.flatMap((entry) =>
+      visibleCollections.flatMap((entry) =>
         entry.tabs.map((tab, index) => ({
           key: `${entry.id}-${tab.id ?? tab.url ?? index}`,
           tab,
@@ -121,7 +152,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
           savedAt: entry.savedAt
         }))
       ),
-    [collections]
+    [visibleCollections]
   );
 
   const handleGroupByDateChange = React.useCallback((enabled: boolean) => {
@@ -194,10 +225,12 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
     const isSmallImage = imageDisplayMode === "small";
     const isLargeImage = imageDisplayMode === "large";
     const allowPreviewImage = shouldShowPreviewImage(tab, thumbnailsOnly);
+    const matchesFind = normalizedFindQuery.length > 0 && tabMatchesSearch(tab, normalizedFindQuery);
 
     return (
       <li
         key={key}
+        data-find-match={matchesFind ? "true" : undefined}
         className={`group relative text-sm ${
           compactCard ? "py-0" : "py-1 border-b border-[#222222] last:border-0"
         } hover:bg-[#1a1a1a] px-2 -mx-2 rounded transition-colors ${className}`}
@@ -235,10 +268,19 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
               <Globe className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
             )}
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-gray-300 truncate">{tab.title ?? tab.url ?? "Untitled"}</span>
+              <HighlightText
+                className="text-gray-300 truncate"
+                text={tab.title ?? tab.url}
+                fallback="Untitled"
+                query={highlightQuery}
+              />
               <TabVideoMeta tab={tab} className="mt-1" showDuration={!isLargeImage} />
               {tab.url && (
-                <span className="text-gray-500 text-xs truncate font-mono mt-1">{tab.url}</span>
+                <HighlightText
+                  className="text-gray-500 text-xs truncate font-mono mt-1"
+                  text={tab.url}
+                  query={highlightQuery}
+                />
               )}
             </div>
           </div>
@@ -265,7 +307,15 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   };
 
   const renderCollection = (entry: SavedTabCollection, variant: "list" | "grid") => {
-    const visibleTabs = expandedSaved[entry.id] ? entry.tabs : entry.tabs.slice(0, 5);
+    const showAllTabs = expandedSaved[entry.id] || hasFilter || normalizedFindQuery.length > 0;
+    const visibleTabs = showAllTabs ? entry.tabs : entry.tabs.slice(0, 5);
+    const label = getSavedWindowLabel(entry);
+    const matchesFind =
+      normalizedFindQuery.length > 0 &&
+      textMatchesSearch(
+        [label, entry.browser, entry.source, entry.windowId, new Date(entry.savedAt).toLocaleString()],
+        normalizedFindQuery
+      );
     const containerClass =
       variant === "grid"
         ? "masonry-item rounded-xl border border-[#16161a] bg-[#141414] p-4"
@@ -280,7 +330,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         : "flex gap-2";
 
     return (
-      <div key={entry.id} className={containerClass}>
+      <div key={entry.id} data-find-match={matchesFind ? "true" : undefined} className={containerClass}>
         <div className={headerClass}>
           <div className="min-w-0 flex-1 pr-4">
             {editingId === entry.id ? (
@@ -305,7 +355,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
             ) : (
               <div className="flex items-center gap-2 mb-1 group/title">
                 <h3 className="text-lg font-medium text-gray-200 truncate">
-                  {getSavedWindowLabel(entry)}
+                  <HighlightText text={label} query={highlightQuery} />
                 </h3>
                 <button
                   type="button"
@@ -367,7 +417,7 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         <ul className="space-y-2 mb-3">
           {visibleTabs.map((tab, idx) => renderTabItem(entry, tab, `${entry.id}-${tab.id ?? idx}`))}
         </ul>
-        {entry.tabs.length > 5 && (
+        {entry.tabs.length > 5 && !hasFilter && normalizedFindQuery.length === 0 && (
           <div className="flex justify-center mt-2">
             <button
               className="text-xs text-gray-500 hover:text-gray-300 hover:bg-[#1a1a1a] transition-colors rounded px-2 py-1"
@@ -384,8 +434,8 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
   };
 
   const groupedCollections = React.useMemo(
-    () => groupItemsByDay(collections, (entry) => entry.savedAt),
-    [collections]
+    () => groupItemsByDay(visibleCollections, (entry) => entry.savedAt),
+    [visibleCollections]
   );
 
   return (
@@ -431,7 +481,9 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
       </div>
       {collections.length === 0 ? (
         <p className="text-gray-500 text-sm italic">No saved tab sets yet.</p>
-      ) : groupByDate && groupByWindow ? (
+      ) : visibleCollections.length === 0 ? (
+        <p className="text-gray-500 text-sm italic">No saved tab sets match the filter.</p>
+      ) : groupByDate && effectiveGroupByWindow ? (
         <div className="space-y-14">
           {groupedCollections.map((group) => (
             <section key={group.dayStart} className="space-y-6">
@@ -475,11 +527,11 @@ export const SavedCollectionsList: React.FC<SavedCollectionsListProps> = ({
         </div>
       ) : viewMode === "list" ? (
         <div className="space-y-4">
-          {collections.map((entry) => renderCollection(entry, "list"))}
+          {visibleCollections.map((entry) => renderCollection(entry, "list"))}
         </div>
       ) : (
         <div className="masonry-layout" style={masonryStyle}>
-          {collections.map((entry) => renderCollection(entry, "grid"))}
+          {visibleCollections.map((entry) => renderCollection(entry, "grid"))}
         </div>
       )}
     </section>
